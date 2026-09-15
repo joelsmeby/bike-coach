@@ -95,7 +95,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     <input id="testOffset" type="number" value="18.1" min="0" max="600" step="0.1">
     <span>seconds</span>
     <label style="padding:0;border:0;background:none"><input id="showLabels" type="checkbox" checked style="width:auto"> Show test labels</label>
-    <button id="fullLogBtn">Show Full Log</button><span>Ctrl + mouse wheel = X-axis zoom; drag chart = pan</span>
+    <button id="fullLogBtn">Show Full Log</button><span>iPhone: drag sideways = pan; pinch = X-axis zoom. Desktop: Ctrl + wheel = zoom; drag = pan</span>
   </div>
 
   <section class="card" style="margin-bottom:14px">
@@ -491,9 +491,19 @@ function movePan(e){
 function endPan(){
   if(dragging){dragging.canvas.style.cursor="";dragging=null}
 }
+let touchState=null;
+function touchDistance(t){return Math.hypot(t[1].clientX-t[0].clientX,t[1].clientY-t[0].clientY)}
+function touchMidX(t){return (t[0].clientX+t[1].clientX)/2}
+function startTouch(canvas,e){if(!samples.length)return;const d=visibleData();if(d.length<2)return;if(e.touches.length===1){touchState={mode:"pending",canvas,startX:e.touches[0].clientX,startY:e.touches[0].clientY,startA:d[0].ts,startB:d[d.length-1].ts}}else if(e.touches.length===2){e.preventDefault();touchState={mode:"pinch",canvas,startDist:touchDistance(e.touches),startA:d[0].ts,startB:d[d.length-1].ts,anchorX:touchMidX(e.touches)}}}
+function moveTouch(e){if(!touchState||!samples.length)return;const r=touchState.canvas.getBoundingClientRect(),first=samples[0].ts,last=samples[samples.length-1].ts;if(e.touches.length===2){e.preventDefault();if(touchState.mode!=="pinch"){const d=visibleData();touchState={mode:"pinch",canvas:touchState.canvas,startDist:touchDistance(e.touches),startA:d[0].ts,startB:d[d.length-1].ts,anchorX:touchMidX(e.touches)}}const span=touchState.startB-touchState.startA,dist=Math.max(20,touchDistance(e.touches)),newSpan=Math.min(last-first,Math.max(2,span*touchState.startDist/dist)),frac=Math.min(1,Math.max(0,(touchState.anchorX-r.left)/r.width)),anchor=touchState.startA+frac*span;let a=anchor-frac*newSpan,b=a+newSpan;if(a<first){b+=first-a;a=first}if(b>last){a-=b-last;b=last}viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b);return}if(e.touches.length!==1)return;const dx=e.touches[0].clientX-touchState.startX,dy=e.touches[0].clientY-touchState.startY;if(touchState.mode==="pending"){if(Math.abs(dx)<7&&Math.abs(dy)<7)return;if(Math.abs(dx)>Math.abs(dy)*1.15)touchState.mode="pan";else{touchState=null;return}}if(touchState.mode==="pan"){e.preventDefault();const span=touchState.startB-touchState.startA,dt=-dx/r.width*span;let a=touchState.startA+dt,b=touchState.startB+dt;if(a<first){b+=first-a;a=first}if(b>last){a-=b-last;b=last}viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b)}}
+function endTouch(e){if(!touchState)return;if(e.touches&&e.touches.length===1&&touchState.mode==="pinch"){const d=visibleData();touchState={mode:"pending",canvas:touchState.canvas,startX:e.touches[0].clientX,startY:e.touches[0].clientY,startA:d[0].ts,startB:d[d.length-1].ts};return}if(!e.touches||e.touches.length===0)touchState=null}
 Object.values(canvases).forEach(c=>{
   c.addEventListener("wheel",e=>applyWheelZoom(c,e),{passive:false});
   c.addEventListener("mousedown",e=>startPan(c,e));
+  c.addEventListener("touchstart",e=>startTouch(c,e),{passive:false});
+  c.addEventListener("touchmove",moveTouch,{passive:false});
+  c.addEventListener("touchend",endTouch,{passive:false});
+  c.addEventListener("touchcancel",()=>touchState=null,{passive:true});
 });
 window.addEventListener("mousemove",movePan);
 window.addEventListener("mouseup",endPan);
@@ -502,6 +512,6 @@ refreshFrameLabels();
 window.addEventListener("beforeunload",()=>{if(port)disconnectSerial()});
 requestAnimationFrame(update);
 </script>
-<!-- Mobile v5.1: optimized file rendering and explicit parse diagnostics. -->
+<!-- Mobile v5.2: iPhone horizontal touch pan + pinch X-axis zoom. -->
 </body>
 </html>
