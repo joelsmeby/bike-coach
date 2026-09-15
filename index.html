@@ -162,7 +162,7 @@ function addBikeFrame(s){
 }
 let port=null, reader=null, keepReading=false, buffer="";
 let samples=[], liveRows=[], angleOffset=0, source="—";
-let viewStartTs=null, viewEndTs=null, dragging=null;
+let viewStartTs=null, viewEndTs=null, dragging=null, fullLogMode=true;
 const MAX_KEEP=120000;
 
 const $=id=>document.getElementById(id);
@@ -260,7 +260,7 @@ function loadText(text,name){
   recomputeAngles();
   source=name; $("sourceLabel").textContent="Source: "+name;
   if(samples.length){
-    viewStartTs=samples[0].ts; viewEndTs=samples[samples.length-1].ts;
+    viewStartTs=samples[0].ts; viewEndTs=samples[samples.length-1].ts; fullLogMode=true;
     setStatus("Loaded "+samples.length.toLocaleString()+" samples"+(rejected?" ("+rejected+" rows skipped)":""),true);
     renderSegmentTable();
   }else{
@@ -384,7 +384,9 @@ function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
     ctx.fillText(yLabel,0,0);
     ctx.restore();
   }
-  const t0=data[0].ts,t1=data[data.length-1].ts,dt=Math.max(.001,t1-t0);
+  const t0=fullLogMode&&samples.length?samples[0].ts:data[0].ts;
+  const t1=fullLogMode&&samples.length?samples[samples.length-1].ts:data[data.length-1].ts;
+  const dt=Math.max(.001,t1-t0);
   drawTestOverlay(ctx,data,pad,pw,ph,dpr);
   ctx.textAlign="center";for(let i=0;i<5;i++){let x=pad.l+pw*i/4;ctx.fillText(((t1-t0)*i/4).toFixed(1)+"s",x,h-8*dpr)}
   const cols=["#60a5fa","#f59e0b","#34d399","#f472b6"];
@@ -395,6 +397,7 @@ function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
 function visibleData(){
   if(!samples.length)return [];
   const first=samples[0].ts,last=samples[samples.length-1].ts;
+  if(fullLogMode) return samples;
   if(viewStartTs!=null && viewEndTs!=null){
     const a=Math.max(first,viewStartTs), b=Math.min(last,viewEndTs);
     let i=0; while(i<samples.length && samples[i].ts<a)i++;
@@ -443,12 +446,16 @@ $("coordFrame").onchange=()=>{recomputeAngles();angleOffset=0;refreshFrameLabels
 $("yawAxis").onchange=()=>{recomputeAngles();angleOffset=0;refreshFrameLabels()};
 $("zeroAngle").onclick=()=>{if(samples.length)angleOffset=samples[samples.length-1].angle};
 $("testOffset").onchange=renderSegmentTable;
-$("windowSec").onchange=()=>{viewStartTs=null;viewEndTs=null;};
+$("windowSec").onchange=()=>{fullLogMode=false;viewStartTs=null;viewEndTs=null;};
 $("showLabels").onchange=()=>{};
 $("fullLogBtn").onclick=()=>{
   if(!samples.length)return;
+  fullLogMode=true;
+  dragging=null; touchState=null;
   viewStartTs=samples[0].ts;
   viewEndTs=samples[samples.length-1].ts;
+  const duration=viewEndTs-viewStartTs;
+  setStatus("Full log: "+duration.toFixed(1)+" s · "+samples.length.toLocaleString()+" samples",true);
 };
 
 function chartTimeAtEvent(canvas,e){
@@ -470,7 +477,7 @@ function applyWheelZoom(canvas,e){
   let na=anchor-rel*newSpan, nb=na+newSpan;
   if(na<first){nb+=first-na;na=first}
   if(nb>last){na-=nb-last;nb=last}
-  viewStartTs=Math.max(first,na); viewEndTs=Math.min(last,nb);
+  fullLogMode=false; viewStartTs=Math.max(first,na); viewEndTs=Math.min(last,nb);
 }
 function startPan(canvas,e){
   if(!samples.length)return;
@@ -486,7 +493,7 @@ function movePan(e){
   let a=dragging.startA+dt,b=dragging.startB+dt;
   if(a<first){b+=first-a;a=first}
   if(b>last){a-=b-last;b=last}
-  viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b);
+  fullLogMode=false;viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b);
 }
 function endPan(){
   if(dragging){dragging.canvas.style.cursor="";dragging=null}
@@ -495,7 +502,7 @@ let touchState=null;
 function touchDistance(t){return Math.hypot(t[1].clientX-t[0].clientX,t[1].clientY-t[0].clientY)}
 function touchMidX(t){return (t[0].clientX+t[1].clientX)/2}
 function startTouch(canvas,e){if(!samples.length)return;const d=visibleData();if(d.length<2)return;if(e.touches.length===1){touchState={mode:"pending",canvas,startX:e.touches[0].clientX,startY:e.touches[0].clientY,startA:d[0].ts,startB:d[d.length-1].ts}}else if(e.touches.length===2){e.preventDefault();touchState={mode:"pinch",canvas,startDist:touchDistance(e.touches),startA:d[0].ts,startB:d[d.length-1].ts,anchorX:touchMidX(e.touches)}}}
-function moveTouch(e){if(!touchState||!samples.length)return;const r=touchState.canvas.getBoundingClientRect(),first=samples[0].ts,last=samples[samples.length-1].ts;if(e.touches.length===2){e.preventDefault();if(touchState.mode!=="pinch"){const d=visibleData();touchState={mode:"pinch",canvas:touchState.canvas,startDist:touchDistance(e.touches),startA:d[0].ts,startB:d[d.length-1].ts,anchorX:touchMidX(e.touches)}}const span=touchState.startB-touchState.startA,dist=Math.max(20,touchDistance(e.touches)),newSpan=Math.min(last-first,Math.max(2,span*touchState.startDist/dist)),frac=Math.min(1,Math.max(0,(touchState.anchorX-r.left)/r.width)),anchor=touchState.startA+frac*span;let a=anchor-frac*newSpan,b=a+newSpan;if(a<first){b+=first-a;a=first}if(b>last){a-=b-last;b=last}viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b);return}if(e.touches.length!==1)return;const dx=e.touches[0].clientX-touchState.startX,dy=e.touches[0].clientY-touchState.startY;if(touchState.mode==="pending"){if(Math.abs(dx)<7&&Math.abs(dy)<7)return;if(Math.abs(dx)>Math.abs(dy)*1.15)touchState.mode="pan";else{touchState=null;return}}if(touchState.mode==="pan"){e.preventDefault();const span=touchState.startB-touchState.startA,dt=-dx/r.width*span;let a=touchState.startA+dt,b=touchState.startB+dt;if(a<first){b+=first-a;a=first}if(b>last){a-=b-last;b=last}viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b)}}
+function moveTouch(e){if(!touchState||!samples.length)return;const r=touchState.canvas.getBoundingClientRect(),first=samples[0].ts,last=samples[samples.length-1].ts;if(e.touches.length===2){e.preventDefault();if(touchState.mode!=="pinch"){const d=visibleData();touchState={mode:"pinch",canvas:touchState.canvas,startDist:touchDistance(e.touches),startA:d[0].ts,startB:d[d.length-1].ts,anchorX:touchMidX(e.touches)}}const span=touchState.startB-touchState.startA,dist=Math.max(20,touchDistance(e.touches)),newSpan=Math.min(last-first,Math.max(2,span*touchState.startDist/dist)),frac=Math.min(1,Math.max(0,(touchState.anchorX-r.left)/r.width)),anchor=touchState.startA+frac*span;let a=anchor-frac*newSpan,b=a+newSpan;if(a<first){b+=first-a;a=first}if(b>last){a-=b-last;b=last}fullLogMode=false;fullLogMode=false;viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b);return}if(e.touches.length!==1)return;const dx=e.touches[0].clientX-touchState.startX,dy=e.touches[0].clientY-touchState.startY;if(touchState.mode==="pending"){if(Math.abs(dx)<7&&Math.abs(dy)<7)return;if(Math.abs(dx)>Math.abs(dy)*1.15)touchState.mode="pan";else{touchState=null;return}}if(touchState.mode==="pan"){e.preventDefault();const span=touchState.startB-touchState.startA,dt=-dx/r.width*span;let a=touchState.startA+dt,b=touchState.startB+dt;if(a<first){b+=first-a;a=first}if(b>last){a-=b-last;b=last}fullLogMode=false;viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b)}}
 function endTouch(e){if(!touchState)return;if(e.touches&&e.touches.length===1&&touchState.mode==="pinch"){const d=visibleData();touchState={mode:"pending",canvas:touchState.canvas,startX:e.touches[0].clientX,startY:e.touches[0].clientY,startA:d[0].ts,startB:d[d.length-1].ts};return}if(!e.touches||e.touches.length===0)touchState=null}
 Object.values(canvases).forEach(c=>{
   c.addEventListener("wheel",e=>applyWheelZoom(c,e),{passive:false});
@@ -512,6 +519,6 @@ refreshFrameLabels();
 window.addEventListener("beforeunload",()=>{if(port)disconnectSerial()});
 requestAnimationFrame(update);
 </script>
-<!-- Mobile v5.2: iPhone horizontal touch pan + pinch X-axis zoom. -->
+<!-- Mobile v5.3: iPhone horizontal touch pan + pinch X-axis zoom. -->
 </body>
 </html>
