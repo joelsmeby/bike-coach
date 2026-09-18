@@ -39,8 +39,10 @@ export function calibrate(samples, standalone=false) {
   const failures=[];
   if(diagnostics.accelRmsMg>20)failures.push(`acceleration variation ${f(diagnostics.accelRmsMg)} mg (limit 20)`);
   if(diagnostics.accelPeakMg>70)failures.push(`acceleration peak deviation ${f(diagnostics.accelPeakMg)} mg (limit 70)`);
-  if(diagnostics.gyroRmsDps>0.8)failures.push(`gyro variation ${f(diagnostics.gyroRmsDps)} °/s (limit 0.8)`);
-  if(diagnostics.gyroPeakDps>3)failures.push(`gyro peak deviation ${f(diagnostics.gyroPeakDps)} °/s (limit 3)`);
+  // Real stationary Artemis recordings show about 2.3–2.4 °/s RMS sample noise.
+  // Motion is still guarded by acceleration variation and the separate mean-bias limit.
+  if(diagnostics.gyroRmsDps>3.5)failures.push(`gyro variation ${f(diagnostics.gyroRmsDps)} °/s (limit 3.5)`);
+  if(diagnostics.gyroPeakDps>8)failures.push(`gyro peak deviation ${f(diagnostics.gyroPeakDps)} °/s (limit 8)`);
   if(failures.length)return bad('Stillness check failed: '+failures.join('; ')+'. This can be motion or sensor noise. If the device was stationary, save the calibration report.');
   if(norm(bias)>3)return bad(`The gyro has a steady offset of ${f(norm(bias))} °/s (limit 3). This is not a motion-variation failure. Save the calibration report before changing the limits.`);
   const frame=frameForUp(gravity);

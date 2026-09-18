@@ -1,15 +1,28 @@
 import {orientationAngles,angleLabel} from './orientation.mjs';
 import {Receiver,decode} from './core.mjs';
 import {rideStore,recordStore} from './storage.js?v=3';
-import {calibrate,samplesFromCsv,validCalibration,calibratedCsv,hasLevelReference,setLevelReference,useLevelReference} from './calibration.mjs?v=5';
+import {calibrate,samplesFromCsv,validCalibration,calibratedCsv,hasLevelReference,setLevelReference,useLevelReference} from './calibration.mjs?v=6';
 import {RideWorkflow} from './ride-workflow.mjs';
 const $=id=>document.getElementById(id),uuid=n=>`7b7e${n}-6f1d-4f35-9f55-42494b45434f`,enc=new TextEncoder();
 const workflow=new RideWorkflow();
 let analysisReference=null;
 let device,command,statusChar,receiver,ride,operation=false,active=false,finishing=false;
 let statusWait=null,tail=Promise.resolve(),packetChain=Promise.resolve(),lastPacket=0,transfer=null,recording=false;
+let calibrationState='idle';
 const message=s=>$('status').textContent=s, text=v=>new TextDecoder().decode(v);
 const calibrationKey=()=>`calibration:${device.id}`;
+function calibrationMetrics(c){
+ const d=c?.diagnostics;if(!d)return '';
+ return `${d.samples} samples · gravity ${d.gravityMg.toFixed(0)} mg · acceleration noise ${d.accelRmsMg.toFixed(1)} mg · gyro noise ${d.gyroRmsDps.toFixed(1)} °/s`;
+}
+function showCalibration(kind,title,details){
+ calibrationState=kind;$('calibrationResult').className=`calibration-result ${kind}`;$('calibrationStatus').textContent=title;$('calibrationDetails').textContent=details||'';
+}
+function restoreCalibrationNotice(c){
+ if(!validCalibration(c)){showCalibration('idle','Ready to calibrate','Tap Calibrate and keep the bike upright and still for six seconds.');return;}
+ const next=hasLevelReference(c)?'Ready to start a ride.':'Next: place the bike upright with the top tube level, then tap Set level & analysis reference.';
+ showCalibration('pass','Calibration passed',`${calibrationMetrics(c)}. ${next}`);
+}
 function controls(){
  const connected=!!command&&!!device?.gatt.connected,locked=operation||active;
  $('connect').disabled=locked;$('connect').textContent=connected?'Disconnect':'Connect Bike Coach';
@@ -22,7 +35,7 @@ function controls(){
  $('calibrationReport').disabled=!connected||locked;
  $('setLevelReference').disabled=!connected||locked||recording||!!workflow.pending||!validCalibration(workflow.calibration);
  renderOrientation();
- $('calibrationStatus').textContent=!validCalibration(workflow.calibration)?'Calibrate before starting a ride.':hasLevelReference(workflow.calibration)?'Calibration and level reference ready. Recalibrate after remounting the device.':'Calibration ready. Set the level & analysis reference before starting a ride.';
+ $('startHelp').textContent=!validCalibration(workflow.calibration)?'Start is disabled because calibration has not passed.':!hasLevelReference(workflow.calibration)?'Calibration passed. Set the level & analysis reference to enable Start.':'Ready. Start ride is enabled.';
 }
 function renderOrientation(){
  const angles=orientationAngles(workflow.calibration);
@@ -105,7 +118,7 @@ $('connect').onclick=async()=>{
  await run(async()=>{
   if(!navigator.bluetooth)throw Error('Open this page in Bluefy on your iPhone.');
   device=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'BikeCoach'}],optionalServices:[uuid('1000')]});
-   device.addEventListener('gattserverdisconnected',()=>{command=null;recording=false;analysisReference=null;workflow.disconnected();rejectStatus(Error('Disconnected. Reconnect before continuing.'));failTransfer(Error('Disconnected during download. Reconnect and try again.'));message('Disconnected. Saved rides are still available.');$('connection').textContent='Not connected';controls();});
+   device.addEventListener('gattserverdisconnected',()=>{command=null;recording=false;analysisReference=null;workflow.disconnected();rejectStatus(Error('Disconnected. Reconnect before continuing.'));failTransfer(Error('Disconnected during download. Reconnect and try again.'));showCalibration('idle','Disconnected','Reconnect before calibrating or starting a ride.');message('Disconnected. Saved rides are still available.');$('connection').textContent='Not connected';controls();});
   try{
    const server=await device.gatt.connect(),service=await server.getPrimaryService(uuid('1000'));
    command=await service.getCharacteristic(uuid('1001'));statusChar=await service.getCharacteristic(uuid('1002'));
@@ -114,31 +127,39 @@ $('connect').onclick=async()=>{
    dataChar.addEventListener('characteristicvaluechanged',onPacket);await dataChar.startNotifications();
     const c=await recordStore(calibrationKey());workflow.setCalibration(validCalibration(c)?c:null);
     const ref=await recordStore(`analysis-reference:${device.id}`);analysisReference=hasLevelReference(ref)?ref:(hasLevelReference(c)?c:null);
+    restoreCalibrationNotice(workflow.calibration);
    $('connection').textContent='Bike Coach connected';message('Connected. Calibrate once, then start your ride.');
   }catch(e){device.gatt.disconnect();throw e;}
  });
 };
 $('calibrate').onclick=()=>run(async()=>{
- if(workflow.pending)throw Error('Download your current ride before recalibrating.');
- workflow.setCalibration(null);controls();await recordStore(calibrationKey(),null);
- await confirmed('STOP_RIDE',['SAVED,','IDLE']);
- const start=await confirmed('START_RIDE',['LOGGING,']);recording=true;
- const file=start.slice(8);let stopped=false;
  try{
-  const deadline=Date.now()+6000;message('Hold still — 6 seconds. Keep the bike upright on level ground.');
-  await new Promise((resolve,reject)=>{const timer=setInterval(()=>{
-   if(!device?.gatt.connected){clearInterval(timer);reject(Error('Calibration interrupted. Try again.'));return;}
-   const remaining=Math.ceil((deadline-Date.now())/1000);
-   if(remaining<=0){clearInterval(timer);resolve();}else message(`Hold still — ${remaining} seconds. Keep the bike upright on level ground.`);
-  },100);});
-  const s=await confirmed('STOP_RIDE',['SAVED,']);recording=false;stopped=true;
-  if(s.slice(6)!==file)throw Error('Calibration recording changed. Try again.');
-  const sample=await download('calibration',file);
-  if(!validCalibration(sample.calibration))throw Error('Calibration failed: '+sample.calibration.reason);
-   const prepared=analysisReference?useLevelReference(sample.calibration,analysisReference):sample.calibration;
+  if(workflow.pending)throw Error('Download your current ride before recalibrating.');
+  showCalibration('working','Calibration in progress','Starting the six-second stationary recording…');
+  workflow.setCalibration(null);controls();await recordStore(calibrationKey(),null);
+  await confirmed('STOP_RIDE',['SAVED,','IDLE']);
+  const start=await confirmed('START_RIDE',['LOGGING,']);recording=true;
+  const file=start.slice(8);let stopped=false;
+  try{
+   const deadline=Date.now()+6000;message('Hold still — 6 seconds. Keep the bike upright on level ground.');
+   await new Promise((resolve,reject)=>{const timer=setInterval(()=>{
+    if(!device?.gatt.connected){clearInterval(timer);reject(Error('Calibration interrupted. Try again.'));return;}
+    const remaining=Math.ceil((deadline-Date.now())/1000);
+    if(remaining<=0){clearInterval(timer);resolve();}else{showCalibration('working','Calibration in progress',`Hold still — ${remaining} seconds remaining.`);message(`Hold still — ${remaining} seconds. Keep the bike upright on level ground.`);}
+   },100);});
+   showCalibration('working','Checking calibration','Downloading and checking the sensor sample…');
+   const s=await confirmed('STOP_RIDE',['SAVED,']);recording=false;stopped=true;
+   if(s.slice(6)!==file)throw Error('Calibration recording changed. Try again.');
+   const sample=await download('calibration',file),result=sample.calibration;
+   if(!validCalibration(result)){
+    showCalibration('fail','Calibration failed',`${result.reason}${calibrationMetrics(result)?' '+calibrationMetrics(result)+'.':''}`);
+    throw Error('Calibration failed. Read the result above, then try again.');
+   }
+   const prepared=analysisReference?useLevelReference(result,analysisReference):result;
    const c={...prepared,createdAt:new Date().toISOString(),sourceFile:file};
-   await recordStore(calibrationKey(),c);workflow.setCalibration(c);message(hasLevelReference(c)?'Calibration ready. Tap Start ride whenever you are ready.':'Calibration ready. Now set the level & analysis reference.');
- }finally{if(!stopped&&device?.gatt.connected){try{await confirmed('STOP_RIDE',['SAVED,','IDLE']);recording=false;}catch{}}}
+   await recordStore(calibrationKey(),c);workflow.setCalibration(c);restoreCalibrationNotice(c);message(hasLevelReference(c)?'Calibration passed. Start ride is ready.':'Calibration passed. Pitch and roll are shown below; now set the level & analysis reference.');
+  }finally{if(!stopped&&device?.gatt.connected){try{await confirmed('STOP_RIDE',['SAVED,','IDLE']);recording=false;}catch{}}}
+ }catch(e){if(calibrationState!=='fail')showCalibration('fail','Calibration did not complete',e.message);throw e;}
 });
 $('start').onclick=()=>run(async()=>{
  if(!hasLevelReference(workflow.calibration))throw Error('Calibrate and set the level & analysis reference before starting a ride.');
@@ -150,7 +171,7 @@ $('stop').onclick=()=>run(async()=>{const s=await confirmed('STOP_RIDE',['SAVED,
 $('download').onclick=()=>run(async()=>{const r=await download('ride',workflow.pending?.stopped?workflow.pending.name:null);message(validCalibration(r.calibration)?'Download complete. Your ride and its calibration are saved.':'Download complete. No calibration was linked to this ride; see the options below.');});
 $('cancel').onclick=()=>failTransfer(Error('Download cancelled. The original stays on the board.'));
 $('applyCalibration').onclick=()=>run(async()=>{if(!ride||!validCalibration(workflow.calibration))return;const r={...ride,calibration:structuredClone(workflow.calibration)};await rideStore(r);showRide(r);message('Saved calibration attached to this ride.');});
-$('analyze').onclick=()=>location.href='analyzer.html?v=4&latest=1';
+$('analyze').onclick=()=>location.href='analyzer.html?v=5&latest=1';
 function save(csv){if(!ride)return;const data=csv?calibratedCsv(ride.csv,ride.calibration):ride.bytes;
  const url=URL.createObjectURL(new Blob([data],{type:csv?'text/csv':'application/octet-stream'})),a=document.createElement('a');
  a.href=url;a.download=ride.name.replace(/\.[^.]+$/,'')+(csv?'.csv':'.bin');a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
@@ -175,5 +196,6 @@ $('setLevelReference').onclick=()=>run(async()=>{
  await recordStore(calibrationKey(),reference);
  await recordStore(`analysis-reference:${device.id}`,reference);
  analysisReference=structuredClone(reference);workflow.setCalibration(reference);
+ restoreCalibrationNotice(reference);
  message('Level reference saved. It will be used for both orientation and ride analysis.');
 });
