@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
+<title>Bike Coach · Analyzer</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--muted:#9aa4b2;--text:#eef2f7;--border:#2a303b;--good:#4ade80;--warn:#fbbf24}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  h1{font-size:20px;margin:0}.sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button,label.filebtn,select,input{background:#222733;color:var(--text);border:1px solid #394150;border-radius:8px;padding:9px 12px;font-size:14px}
+  button,label.filebtn{cursor:pointer} button:hover,label.filebtn:hover{background:#2b3240}
+  button.primary{background:#2563eb;border-color:#2563eb}button.primary:hover{background:#1d4ed8}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input[type=file]{display:none}
+  main{padding:18px;max-width:1500px;margin:auto}
+  .statusbar{display:flex;gap:18px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--border);padding:12px 14px;border-radius:10px;margin-bottom:14px;font-size:13px}
+  .statusbar b{font-weight:650}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#6b7280;margin-right:7px}.dot.on{background:var(--good)}
+  .grid{display:grid;grid-template-columns:repeat(4,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .card .k{font-size:12px;color:var(--muted)}.card .v{font-size:22px;font-variant-numeric:tabular-nums;margin-top:4px}
+  .row{display:grid;grid-template-columns:1fr;gap:14px}
+  .chartwrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .charthead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:7px;flex-wrap:wrap}
+  .charthead h2{font-size:15px;margin:0}.legend{font-size:12px;color:var(--muted)}
+  canvas{width:100%;height:230px;display:block;background:#11141a;border-radius:7px}
+  .smallrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+  .smallrow input{width:90px;padding:7px}
+  table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:8px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums}th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:600}
+  .footer{color:var(--muted);font-size:12px;margin-top:14px;line-height:1.5}
+  @media(max-width:850px){
+    header{padding:12px 12px;gap:10px} main{padding:10px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    .card{padding:10px}.card .v{font-size:18px}.statusbar{gap:10px;padding:10px}.smallrow{gap:6px}
+    button,label.filebtn,select,input{min-height:44px;font-size:16px;padding:9px 10px}
+    canvas{height:190px;touch-action:pan-y}.chartwrap{padding:8px}.charthead{margin-bottom:5px}
+    table{font-size:12px}.controls{width:100%}.controls>*{flex:1 1 auto;text-align:center}
+  }
+  @media(max-width:480px){
+    h1{font-size:18px}.sub{font-size:12px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .statusbar{font-size:12px}.charthead h2{font-size:14px}.legend{font-size:11px}
+    canvas{height:175px}.smallrow{font-size:12px}.smallrow input{width:78px}
+  }
+  body.native-shell #baud,body.native-shell #connectBtn,body.native-shell #disconnectBtn{display:none}
+  body.native-shell header .sub{display:block}
+</style>
+</head>
+<body class="native-shell">
+<script>
+if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add('native-shell');
+</script>
+<header>
+  <div>
+    <h1>Bike Coach · Analyzer</h1>
+    <div class="sub"><a href="index.html" style="color:#86efac">← Download a ride</a> · Open a saved recording or view your latest download.</div>
+  </div>
+  <div class="controls">
+    <select id="baud"><option value="115200" selected>115200 baud</option><option value="57600">57600 baud</option><option value="9600">9600 baud</option></select>
+    <button class="primary" id="connectBtn">Connect Artemis</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+    <label class="filebtn">Open Log<input id="fileInput" type="file" accept=".txt,.csv,.bin,text/plain,application/octet-stream"></label>
+    <button id="clearBtn">Clear</button>
+    <button id="saveBtn" disabled>Save Live CSV</button>
+  </div>
+</header>
+
+<main>
+  <div class="statusbar">
+    <span><span id="dot" class="dot"></span><b id="status">Not connected</b></span>
+    <span>Samples: <b id="sampleCount">0</b></span>
+    <span>Rate: <b id="rate">—</b></span>
+    <span>Window: <b id="windowLabel">20 s</b></span>
+    <span id="sourceLabel">Source: —</span>
+  </div>
+
+  <div class="grid">
+    <div class="card"><div class="k">Accel magnitude</div><div class="v" id="accMag">—</div></div>
+    <div class="card"><div class="k">Gyro magnitude</div><div class="v" id="gyroMag">—</div></div>
+    <div class="card"><div class="k">Relative angle</div><div class="v" id="angle">—</div></div>
+    <div class="card"><div class="k">IMU temperature</div><div class="v" id="temp">—</div></div>
+  </div>
+
+  <div class="smallrow" style="margin-bottom:14px">
+    <span>Live chart window</span>
+    <input id="windowSec" type="number" value="20" min="2" max="1800" step="1">
+    <span>seconds</span>
+    <span style="margin-left:12px">Coordinate frame</span>
+    <select id="coordFrame"><option value="bike" selected>Bike frame (calibrated)</option><option value="raw">Raw IMU XYZ</option></select>
+    <span style="margin-left:12px">Angle axis</span>
+    <select id="yawAxis"><option value="yawRate" selected>Yaw rate</option><option value="rollRate">Roll rate</option><option value="pitchRate">Pitch rate</option></select>
+    <button id="zeroAngle">Zero angle</button>
+    <span>Bike frame: Forward / Left / Up acceleration and Roll / Pitch / Yaw rate. Relative angle integrates the selected rotational rate.</span>
+    <span style="margin-left:12px">Test start offset</span>
+    <input id="testOffset" type="number" value="18.1" min="0" max="600" step="0.1">
+    <span>seconds</span>
+    <label style="padding:0;border:0;background:none"><input id="showLabels" type="checkbox" checked style="width:auto"> Show test labels</label>
+    <button id="fullLogBtn">Show Full Log</button><span>Use the zoom buttons below; drag a chart sideways to move through time.</span>
+  </div>
+
+  <section class="card" style="margin-bottom:14px">
+    <div class="charthead"><h2>Bike-frame calibration</h2><div class="legend">Derived from dataLog00026.TXT</div></div>
+    <div style="font-size:13px;line-height:1.55;color:var(--muted)">
+      The analyzer rotates each raw IMU sample into the bike coordinate system before plotting or interpreting it.
+      Calibration basis in raw IMU XYZ:
+      <b style="color:var(--text)">Forward</b> = [0.547, -0.666, 0.506],
+      <b style="color:var(--text)">Left</b> = [-0.837, -0.415, 0.357],
+      <b style="color:var(--text)">Up</b> = [-0.028, -0.619, -0.785].
+      Use Raw IMU XYZ only for troubleshooting.
+    </div>
+  </section>
+
+  <div class="row">
+    <section class="chartwrap"><div class="charthead"><h2>Acceleration — Bike Frame</h2><div class="legend" id="accLegend">Forward / Left / Up — mg</div></div><canvas id="accChart"></canvas></section>
+    <section class="chartwrap"><div class="charthead"><h2>Rotation — Bike Frame</h2><div class="legend" id="gyroLegend">Roll / Pitch / Yaw rate — °/s</div></div><canvas id="gyroChart"></canvas></section>
+    <section class="chartwrap"><div class="charthead"><h2>Magnetometer — Bike Frame</h2><div class="legend" id="magLegend">Forward / Left / Up — logged units</div></div><canvas id="magChart"></canvas></section>
+    <section class="chartwrap"><div class="charthead"><h2>Integrated Relative Angle</h2><div class="legend" id="angleLegend">integral of yaw rate — degrees</div></div><canvas id="angleChart"></canvas></section>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <div class="charthead"><h2>First Bike Test — Segment Analysis</h2><div class="legend">Uses the known 5-minute test protocol</div></div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:10px">
+      Segment labels are positioned relative to the test-start offset above. For dataLog00026.TXT, 18.1 s aligns the protocol with the recording.
+    </div>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Segment</th><th>Test time</th><th>Gyro avg</th><th>Gyro SD</th><th>Accel avg</th><th>Accel SD</th><th>Samples</th></tr></thead>
+        <tbody id="segmentTable"><tr><td colspan="7" style="text-align:center;color:var(--muted)">Open a log to calculate segment statistics.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="footer">
+    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The tool ignores menu/debug lines and only accepts rows matching the Artemis sensor format. The first-bike-test overlay labels the controlled protocol: stationary, normal riding, acceleration/braking, turns/slalom, walking the bike, normal riding, and stationary. The default Bike Frame rotates raw XYZ into Forward/Left/Up and Roll/Pitch/Yaw-rate channels using the calibration derived from dataLog00026.TXT. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
+  </div>
+</main>
+
+<script>
+const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
+// Orthogonal bike-frame basis expressed in raw IMU coordinates.
+// Derived from the controlled 5-minute bike test in dataLog00026.TXT.
+const BIKE_FWD=[0.547,-0.666,0.506];
+const BIKE_LEFT=[-0.837,-0.415,0.357];
+const BIKE_UP=[-0.028,-0.619,-0.785];
+function dot3(x,y,z,v){return x*v[0]+y*v[1]+z*v[2]}
+function addBikeFrame(s){
+  // Linear acceleration / gravity components in the bike frame
+  s.aForward=dot3(s.aX,s.aY,s.aZ,BIKE_FWD);
+  s.aLeft=dot3(s.aX,s.aY,s.aZ,BIKE_LEFT);
+  s.aUp=dot3(s.aX,s.aY,s.aZ,BIKE_UP);
+
+  // Angular rates about the bike axes
+  s.rollRate=dot3(s.gX,s.gY,s.gZ,BIKE_FWD);   // rotation about forward axis
+  s.pitchRate=dot3(s.gX,s.gY,s.gZ,BIKE_LEFT); // rotation about left axis
+  s.yawRate=dot3(s.gX,s.gY,s.gZ,BIKE_UP);     // rotation about vertical axis
+
+  // Magnetometer rotated into the same bike frame
+  s.mForward=dot3(s.mX,s.mY,s.mZ,BIKE_FWD);
+  s.mLeft=dot3(s.mX,s.mY,s.mZ,BIKE_LEFT);
+  s.mUp=dot3(s.mX,s.mY,s.mZ,BIKE_UP);
+  return s;
+}
+let port=null, reader=null, keepReading=false, buffer="";
+let samples=[], liveRows=[], angleOffset=0, source="—";
+let viewStartTs=null, viewEndTs=null, dragging=null;
+const MAX_KEEP=120000;
+
+const $=id=>document.getElementById(id);
+const canvases={acc:$("accChart"),gyro:$("gyroChart"),mag:$("magChart"),angle:$("angleChart")};
+
+function setStatus(text,on=false){$("status").textContent=text;$("dot").className="dot"+(on?" on":"")}
+function parseTime(dateStr,timeStr){
+  let d=dateStr.split("/").map(Number), t=timeStr.split(":");
+  if(d.length!==3||t.length!==3)return NaN;
+  let sec=parseFloat(t[2]);
+  return new Date(d[2],d[0]-1,d[1],+t[0],+t[1],Math.floor(sec),Math.round((sec%1)*1000)).getTime()/1000;
+}
+function parseRow(line){
+  line=line.trim();
+  if(!line || line.startsWith("rtcDate")) return null;
+  const p=line.split(",").map(x=>x.trim());
+  if(p.length<13) return null;
+  const vals=p.slice(2,13).map(Number);
+  if(vals.some(v=>!Number.isFinite(v))) return null;
+  const ts=p.length>=14&&p[13]!==''&&Number.isFinite(Number(p[13]))?Number(p[13])/1000:parseTime(p[0],p[1]); if(!Number.isFinite(ts)) return null;
+  return addBikeFrame({rtcDate:p[0],rtcTime:p[1],aX:vals[0],aY:vals[1],aZ:vals[2],gX:vals[3],gY:vals[4],gZ:vals[5],
+          mX:vals[6],mY:vals[7],mZ:vals[8],imu_degC:vals[9],output_Hz:vals[10],ts,angle:0});
+}
+function selectedAngleAxis(){
+  if($("coordFrame").value==="bike") return $("yawAxis").value;
+  const rawMap={yawRate:"gZ",rollRate:"gX",pitchRate:"gY"};
+  return rawMap[$("yawAxis").value]||"gZ";
+}
+function recomputeAngles(){
+  if(!samples.length)return;
+  const axis=selectedAngleAxis();
+  samples[0].angle=0;
+  for(let i=1;i<samples.length;i++){
+    let dt=samples[i].ts-samples[i-1].ts;
+    if(!(dt>0 && dt<1)) dt=1/(samples[i].output_Hz||50);
+    samples[i].angle=samples[i-1].angle + 0.5*(samples[i-1][axis]+samples[i][axis])*dt;
+  }
+}
+function accelG(s){return Math.hypot(s.aX,s.aY,s.aZ)/1000;}
+
+function addSample(s,live=false){
+  if(samples.length){
+    const prev=samples[samples.length-1];
+    let dt=s.ts-prev.ts;
+    if(!(dt>0 && dt<1)) dt=1/(s.output_Hz||50);
+    const axis=selectedAngleAxis();
+    s.angle=prev.angle+0.5*(prev[axis]+s[axis])*dt;
+  }
+  samples.push(s);
+  if(live && samples.length>MAX_KEEP)samples.shift();
+  if(live){
+    liveRows.push(HEADER.map(k=>s[k]??"").join(","));
+    $("saveBtn").disabled=false;
+  }
+}
+async function connectSerial(){
+  if(!("serial" in navigator)){alert("Web Serial is not available in this browser. Open this file in current Chrome or Edge.");return;}
+  try{
+    port=await navigator.serial.requestPort();
+    await port.open({baudRate:+$("baud").value});
+    keepReading=true; source="Live USB serial"; $("sourceLabel").textContent="Source: "+source;
+    $("connectBtn").disabled=true;$("disconnectBtn").disabled=false;setStatus("Connected",true);
+    readLoop();
+  }catch(e){setStatus("Connection failed"); console.error(e);}
+}
+async function readLoop(){
+  const decoder=new TextDecoderStream();
+  const closed=port.readable.pipeTo(decoder.writable).catch(()=>{});
+  reader=decoder.readable.getReader();
+  try{
+    while(keepReading){
+      const {value,done}=await reader.read(); if(done)break;
+      buffer+=value;
+      const lines=buffer.split(/\r?\n/); buffer=lines.pop();
+      for(const line of lines){const s=parseRow(line); if(s)addSample(s,true);}
+    }
+  }catch(e){console.error(e)}
+  finally{try{reader.releaseLock()}catch(e){}}
+}
+async function disconnectSerial(){
+  keepReading=false;
+  try{if(reader)await reader.cancel()}catch(e){}
+  try{if(port)await port.close()}catch(e){}
+  reader=null;port=null;$("connectBtn").disabled=false;$("disconnectBtn").disabled=true;setStatus("Disconnected");
+}
+function loadText(text,name){
+  samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;
+  const lines=String(text||"").split(/\r?\n/);
+  let rejected=0;
+  for(const line of lines){
+    if(!line.trim() || line.trim().startsWith("rtcDate")) continue;
+    const s=parseRow(line);
+    if(s)addSample(s,false); else rejected++;
+  }
+  recomputeAngles();
+  source=name; $("sourceLabel").textContent="Source: "+name;
+  if(samples.length){
+    viewStartTs=samples[0].ts; viewEndTs=samples[samples.length-1].ts;
+    setStatus("Loaded "+samples.length.toLocaleString()+" samples"+(rejected?" ("+rejected+" rows skipped)":""),true);
+    renderSegmentTable();
+  }else{
+    setStatus("No valid Artemis rows found");
+  }
+}
+
+// Native iPhone bridge: Swift/CoreBluetooth can inject a complete Artemis log here.
+window.bikeCoachNativeLoadLog=function(payload){
+  if(!payload || typeof payload.text!=="string") return;
+  loadText(payload.text,payload.name||"BikeCoach_BLE.csv");
+  const st=$("status"); if(st) st.textContent="Ride loaded from iPhone Bluetooth";
+  const dot=$("dot"); if(dot) dot.classList.add("on");
+};
+
+function clearData(){samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
+function saveCsv(){
+  const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
+  const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download="artemis_live_"+new Date().toISOString().replace(/[:.]/g,"-")+".csv";a.click();URL.revokeObjectURL(a.href);
+}
+
+const TEST_PROTOCOL=[
+  {name:"Stationary",start:0,end:30,color:"rgba(148,163,184,.13)"},
+  {name:"Normal riding",start:30,end:90,color:"rgba(96,165,250,.12)"},
+  {name:"Accel / brake",start:90,end:120,color:"rgba(245,158,11,.14)"},
+  {name:"Turns / slalom",start:120,end:180,color:"rgba(192,132,252,.13)"},
+  {name:"Walk bike",start:180,end:210,color:"rgba(52,211,153,.13)"},
+  {name:"Normal riding",start:210,end:270,color:"rgba(96,165,250,.12)"},
+  {name:"Stationary",start:270,end:300,color:"rgba(148,163,184,.13)"}
+];
+function mean(a){return a.length?a.reduce((s,v)=>s+v,0)/a.length:NaN}
+function stdev(a){
+  if(!a.length)return NaN;
+  const m=mean(a); return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/a.length);
+}
+function renderSegmentTable(){
+  const tb=$("segmentTable");
+  if(!samples.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted)">Open a log to calculate segment statistics.</td></tr>';return;}
+  const base=samples[0].ts+(+$("testOffset").value||0);
+  tb.innerHTML=TEST_PROTOCOL.map(seg=>{
+    const q=samples.filter(p=>p.ts>=base+seg.start && p.ts<base+seg.end);
+    if(!q.length)return `<tr><td>${seg.name}</td><td>${seg.start}–${seg.end}s</td><td colspan="5">No samples</td></tr>`;
+    const gm=q.map(p=>Math.hypot(p.gX,p.gY,p.gZ)), am=q.map(accelG);
+    return `<tr><td>${seg.name}</td><td>${seg.start}–${seg.end}s</td><td>${mean(gm).toFixed(1)} °/s</td><td>${stdev(gm).toFixed(1)}</td><td>${mean(am).toFixed(2)} g</td><td>${stdev(am).toFixed(2)} g</td><td>${q.length.toLocaleString()}</td></tr>`;
+  }).join("");
+}
+function drawTestOverlay(ctx,data,pad,pw,ph,dpr){
+  if(!$("showLabels").checked || !samples.length || data.length<2)return;
+  const chartT0=data[0].ts, chartT1=data[data.length-1].ts, dt=chartT1-chartT0;
+  const base=samples[0].ts+(+$("testOffset").value||0);
+  ctx.save();
+  for(const seg of TEST_PROTOCOL){
+    const a=base+seg.start,b=base+seg.end;
+    if(b<chartT0||a>chartT1)continue;
+    const xa=pad.l+(Math.max(a,chartT0)-chartT0)/dt*pw;
+    const xb=pad.l+(Math.min(b,chartT1)-chartT0)/dt*pw;
+    ctx.fillStyle=seg.color;ctx.fillRect(xa,pad.t,xb-xa,ph);
+    if(xb-xa>70*dpr){
+      ctx.fillStyle="#cbd5e1";ctx.font=`${10*dpr}px system-ui`;ctx.textAlign="center";
+      ctx.fillText(seg.name,(xa+xb)/2,pad.t+13*dpr);
+    }
+  }
+  ctx.restore();
+}
+
+function resizeCanvas(c){
+  const dpr=window.devicePixelRatio||1, r=c.getBoundingClientRect();
+  const w=Math.max(300,Math.floor(r.width*dpr)),h=Math.max(150,Math.floor(r.height*dpr));
+  if(c.width!==w||c.height!==h){c.width=w;c.height=h}
+  return {w,h,dpr};
+}
+function niceStep(range,targetTicks=6){
+  if(!Number.isFinite(range)||range<=0)return 1;
+  const rough=range/Math.max(2,targetTicks-1);
+  const power=Math.pow(10,Math.floor(Math.log10(rough)));
+  const n=rough/power;
+  return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*power;
+}
+function decimateForDisplay(data,maxPoints=2200){
+  if(data.length<=maxPoints)return data;
+  const step=Math.ceil(data.length/maxPoints), out=[];
+  for(let i=0;i<data.length;i+=step)out.push(data[i]);
+  if(out[out.length-1]!==data[data.length-1])out.push(data[data.length-1]);
+  return out;
+}
+function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
+  data=decimateForDisplay(data);
+  const ctx=canvas.getContext("2d"),{w,h,dpr}=resizeCanvas(canvas);
+  ctx.clearRect(0,0,w,h); const pad={l:64*dpr,r:12*dpr,t:12*dpr,b:28*dpr};
+  const pw=w-pad.l-pad.r,ph=h-pad.t-pad.b;
+  if(data.length<2){ctx.fillStyle="#7f8a99";ctx.font=`${13*dpr}px system-ui`;ctx.fillText("Waiting for data…",pad.l,pad.t+20*dpr);return;}
+  let ymin=Infinity,ymax=-Infinity;
+  const scaleData=minMaxOverride?data:decimateForDisplay(samples,4000);
+  for(const ser of series)for(const p of scaleData){const v=ser.get(p);if(Number.isFinite(v)){ymin=Math.min(ymin,v);ymax=Math.max(ymax,v)}}
+  if(minMaxOverride){ymin=minMaxOverride[0];ymax=minMaxOverride[1]}
+  if(!Number.isFinite(ymin)||!Number.isFinite(ymax)){ymin=-1;ymax=1}
+  if(ymin===ymax){ymin-=1;ymax+=1}
+  const range=ymax-ymin,step=niceStep(range*1.16,6);
+  ymin=Math.floor((ymin-range*.08)/step)*step;
+  ymax=Math.ceil((ymax+range*.08)/step)*step;
+  const ty=v=>pad.t+(ymax-v)/(ymax-ymin)*ph;
+  ctx.strokeStyle="#2b3240";ctx.lineWidth=1*dpr;ctx.fillStyle="#8c97a6";ctx.font=`${11*dpr}px system-ui`;ctx.textAlign="right";
+  const decimals=step>=1?0:Math.min(3,Math.max(1,Math.ceil(-Math.log10(step))));
+  for(let val=Math.ceil(ymin/step)*step;val<=ymax+step*.001;val+=step){
+    const clean=Math.abs(val)<step*1e-8?0:val,y=ty(clean);
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();
+    ctx.fillText(clean.toFixed(decimals),pad.l-7*dpr,y+4*dpr);
+  }
+  if(ymin<=0&&ymax>=0){
+    const y=ty(0);ctx.save();ctx.strokeStyle="#aeb7c4";ctx.lineWidth=2*dpr;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.restore();
+  }
+  if(yLabel){
+    ctx.save();
+    ctx.translate(13*dpr,pad.t+ph/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign="center";
+    ctx.fillStyle="#8c97a6";
+    ctx.font=`${11*dpr}px system-ui`;
+    ctx.fillText(yLabel,0,0);
+    ctx.restore();
+  }
+  const t0=data[0].ts,t1=data[data.length-1].ts,dt=Math.max(.001,t1-t0);
+  drawTestOverlay(ctx,data,pad,pw,ph,dpr);
+  ctx.textAlign="center";for(let i=0;i<5;i++){let x=pad.l+pw*i/4;ctx.fillText(((t1-t0)*i/4).toFixed(1)+"s",x,h-8*dpr)}
+  const cols=["#60a5fa","#f59e0b","#34d399","#f472b6"];
+  series.forEach((s,si)=>{ctx.strokeStyle=cols[si%cols.length];ctx.lineWidth=1.5*dpr;ctx.beginPath();let started=false;
+    data.forEach(p=>{let v=s.get(p);if(!Number.isFinite(v))return;let x=pad.l+(p.ts-t0)/dt*pw,y=pad.t+(ymax-v)/(ymax-ymin)*ph;if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y)});ctx.stroke();
+  });
+}
+function visibleData(){
+  if(!samples.length)return [];
+  const first=samples[0].ts,last=samples[samples.length-1].ts;
+  if(viewStartTs!=null && viewEndTs!=null){
+    const a=Math.max(first,viewStartTs), b=Math.min(last,viewEndTs);
+    let i=0; while(i<samples.length && samples[i].ts<a)i++;
+    let j=i; while(j<samples.length && samples[j].ts<=b)j++;
+    return samples.slice(Math.max(0,i-1),Math.min(samples.length,j+1));
+  }
+  const sec=Math.max(2,+$("windowSec").value||20), cutoff=last-sec;
+  let i=samples.length-1;while(i>0 && samples[i-1].ts>=cutoff)i--;
+  return samples.slice(i);
+}
+function update(){
+  const d=visibleData(), last=samples[samples.length-1];
+  $("sampleCount").textContent=samples.length.toLocaleString();$("windowLabel").textContent=(+$("windowSec").value||20)+" s";
+  if(last){
+    const elapsed=last.ts-samples[0].ts;
+    $("rate").textContent=(elapsed>0?((samples.length-1)/elapsed).toFixed(1):"—")+" Hz";
+    $("accMag").textContent=Math.hypot(last.aX,last.aY,last.aZ).toFixed(0);
+    $("gyroMag").textContent=Math.hypot(last.gX,last.gY,last.gZ).toFixed(1)+" °/s";
+    $("angle").textContent=(last.angle-angleOffset).toFixed(1)+"°";
+    $("temp").textContent=last.imu_degC.toFixed(1)+" °C";
+  } else {$("rate").textContent="—";["accMag","gyroMag","angle","temp"].forEach(id=>$(id).textContent="—")}
+  const bike=$("coordFrame").value==="bike";
+  if(bike){
+    drawChart(canvases.acc,[{get:p=>p.aForward},{get:p=>p.aLeft},{get:p=>p.aUp}],d,null,"Bike acceleration (mg)");
+    drawChart(canvases.gyro,[{get:p=>p.rollRate},{get:p=>p.pitchRate},{get:p=>p.yawRate}],d,null,"Bike rotation rate (°/s)");
+    drawChart(canvases.mag,[{get:p=>p.mForward},{get:p=>p.mLeft},{get:p=>p.mUp}],d,null,"Bike magnetometer");
+  }else{
+    drawChart(canvases.acc,[{get:p=>p.aX},{get:p=>p.aY},{get:p=>p.aZ}],d,null,"Raw acceleration (mg)");
+    drawChart(canvases.gyro,[{get:p=>p.gX},{get:p=>p.gY},{get:p=>p.gZ}],d,null,"Raw angular rate (°/s)");
+    drawChart(canvases.mag,[{get:p=>p.mX},{get:p=>p.mY},{get:p=>p.mZ}],d,null,"Raw magnetometer");
+  }
+  drawChart(canvases.angle,[{get:p=>p.angle-angleOffset}],d,null,"Relative angle (°)");
+  requestAnimationFrame(update);
+}
+$("connectBtn").onclick=connectSerial;$("disconnectBtn").onclick=disconnectSerial;$("clearBtn").onclick=clearData;$("saveBtn").onclick=saveCsv;
+$("fileInput").onchange=async e=>{const f=e.target.files[0];try{if(f){if(/\.bin$/i.test(f.name)){const {decode}=await import('./core.mjs');loadText(decode(new Uint8Array(await f.arrayBuffer())).csv,f.name);}else loadText(await f.text(),f.name);}}catch(err){setStatus(err.message);}e.target.value=""};
+function refreshFrameLabels(){
+  const bike=$("coordFrame").value==="bike";
+  $("accLegend").textContent=bike?"Forward / Left / Up — mg":"aX / aY / aZ — mg";
+  $("gyroLegend").textContent=bike?"Roll / Pitch / Yaw rate — °/s":"gX / gY / gZ — °/s";
+  $("magLegend").textContent=bike?"Forward / Left / Up — logged units":"mX / mY / mZ — logged units";
+  const axis=selectedAngleAxis();
+  const pretty={yawRate:"yaw rate",rollRate:"roll rate",pitchRate:"pitch rate",gX:"gX",gY:"gY",gZ:"gZ"}[axis]||axis;
+  $("angleLegend").textContent="integral of "+pretty+" — degrees";
+}
+$("coordFrame").onchange=()=>{recomputeAngles();angleOffset=0;refreshFrameLabels()};
+$("yawAxis").onchange=()=>{recomputeAngles();angleOffset=0;refreshFrameLabels()};
+$("zeroAngle").onclick=()=>{if(samples.length)angleOffset=samples[samples.length-1].angle};
+$("testOffset").onchange=renderSegmentTable;
+$("windowSec").onchange=()=>{viewStartTs=null;viewEndTs=null;};
+$("showLabels").onchange=()=>{};
+$("fullLogBtn").onclick=()=>{
+  if(!samples.length)return;
+  viewStartTs=samples[0].ts;
+  viewEndTs=samples[samples.length-1].ts;
+};
+
+function chartTimeAtEvent(canvas,e){
+  if(!samples.length)return null;
+  const r=canvas.getBoundingClientRect(), frac=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
+  const d=visibleData(); if(d.length<2)return null;
+  return d[0].ts + frac*(d[d.length-1].ts-d[0].ts);
+}
+function applyWheelZoom(canvas,e){
+  if(!e.ctrlKey || !samples.length)return;
+  e.preventDefault();
+  const d=visibleData(); if(d.length<2)return;
+  const first=samples[0].ts,last=samples[samples.length-1].ts;
+  const a=d[0].ts,b=d[d.length-1].ts, span=b-a;
+  const anchor=chartTimeAtEvent(canvas,e);
+  const factor=e.deltaY<0?0.82:1.22;
+  const newSpan=Math.min(last-first,Math.max(2,span*factor));
+  const rel=(anchor-a)/span;
+  let na=anchor-rel*newSpan, nb=na+newSpan;
+  if(na<first){nb+=first-na;na=first}
+  if(nb>last){na-=nb-last;nb=last}
+  viewStartTs=Math.max(first,na); viewEndTs=Math.min(last,nb);
+}
+function startPan(canvas,e){
+  if(!samples.length)return;
+  const d=visibleData(); if(d.length<2)return;
+  dragging={canvas,startX:e.clientX,startA:d[0].ts,startB:d[d.length-1].ts};
+  canvas.style.cursor="grabbing";
+}
+function movePan(e){
+  if(!dragging||!samples.length)return;
+  const r=dragging.canvas.getBoundingClientRect(), span=dragging.startB-dragging.startA;
+  const dt=-(e.clientX-dragging.startX)/r.width*span;
+  const first=samples[0].ts,last=samples[samples.length-1].ts;
+  let a=dragging.startA+dt,b=dragging.startB+dt;
+  if(a<first){b+=first-a;a=first}
+  if(b>last){a-=b-last;b=last}
+  viewStartTs=Math.max(first,a);viewEndTs=Math.min(last,b);
+}
+function endPan(){
+  if(dragging){dragging.canvas.style.cursor="";dragging=null}
+}
+Object.values(canvases).forEach(c=>{
+  c.addEventListener("wheel",e=>applyWheelZoom(c,e),{passive:false});
+  c.addEventListener("mousedown",e=>startPan(c,e));
+});
+window.addEventListener("mousemove",movePan);
+window.addEventListener("mouseup",endPan);
+
+refreshFrameLabels();
+window.addEventListener("beforeunload",()=>{if(port)disconnectSerial()});
+requestAnimationFrame(update);
+</script>
+<!-- Mobile v5.1: optimized file rendering and explicit parse diagnostics. -->
+<script type="module">
+import {rideStore} from './storage.js';
+if(!navigator.serial){for(const id of ['baud','connectBtn','disconnectBtn'])document.getElementById(id).hidden=true;}
+document.getElementById('showLabels').checked=false;
+if(new URLSearchParams(location.search).has('latest')){try{const r=await rideStore();if(r){loadText(r.csv,r.name);}else setStatus('No downloaded ride yet. Return to Download a ride.');}catch(e){setStatus('Could not open saved ride: '+e.message);}}
+const nav=document.createElement('div');nav.className='smallrow';nav.style.margin='12px 0';
+for(const [label,factor] of [['Zoom in',0.5],['Zoom out',2]]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{if(samples.length<2)return;const d=visibleData(),first=samples[0].ts,last=samples.at(-1).ts,span=Math.min(last-first,Math.max(.2,(d.at(-1).ts-d[0].ts)*factor)),mid=(d.at(-1).ts+d[0].ts)/2;viewStartTs=Math.max(first,Math.min(last-span,mid-span/2));viewEndTs=viewStartTs+span;};nav.append(b);}
+document.querySelector('.row').before(nav);
+for(const c of Object.values(canvases)){c.addEventListener('touchstart',e=>{if(e.touches.length===1)startPan(c,e.touches[0]);},{passive:true});c.addEventListener('touchmove',e=>{if(dragging&&e.touches.length===1){const dx=Math.abs(e.touches[0].clientX-dragging.startX);if(dx>8){e.preventDefault();movePan(e.touches[0]);}}},{passive:false});c.addEventListener('touchend',endPan);c.addEventListener('touchcancel',endPan);}
+</script>
+</body>
+</html>
