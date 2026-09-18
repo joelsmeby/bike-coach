@@ -8,8 +8,15 @@ const cross = (a,b) => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b
 const acc = s => [s.aX,s.aY,s.aZ];
 const gyro = s => [s.gX,s.gY,s.gZ];
 const mean = a => [0,1,2].map(i=>a.reduce((sum,v)=>sum+v[i],0)/a.length);
+function frameForUp(measuredUp,leftReference=MOUNT_LEFT){
+  const up=unit(measuredUp),leftHint=unit(leftReference),sideways=dot(up,leftHint);
+  if(Math.abs(sideways)>Math.sin(10*Math.PI/180))return null;
+  const left=unit(leftHint.map((x,i)=>x-sideways*up[i]));
+  return {forward:unit(cross(left,up)),left,up};
+}
 export function calibrate(samples, standalone=false) {
-  const bad = reason => ({ok:false, reason});
+  let diagnostics=null;
+  const bad = reason => ({ok:false, reason, diagnostics});
   if(!samples.length) return bad('No samples to calibrate.');
   // Use file-relative time, not the phone's clock. Discard the first second of handling.
   const first = samples[0].ts;
@@ -26,24 +33,44 @@ export function calibrate(samples, standalone=false) {
   const deviations=(a,m)=>a.map(v=>norm(v.map((x,i)=>x-m[i])));
   const ad=deviations(aa,gravity), gd=deviations(gg,bias);
   const rms=a=>Math.sqrt(a.reduce((s,x)=>s+x*x,0)/a.length);
-  if(g<850 || g>1150) return bad('Opening acceleration is not close to gravity. Hold the bike still and try again.');
-  if(rms(ad)>20 || Math.max(...ad)>70 || rms(gd)>0.8 || Math.max(...gd)>3 || norm(bias)>3)
-    return bad('The bike moved during calibration. Start again and hold it still through the countdown.');
-  const up=unit(gravity), leftHint=unit(MOUNT_LEFT), sideways=dot(up,leftHint);
-  if(Math.abs(sideways)>Math.sin(10*Math.PI/180))
+  diagnostics={samples:rows.length,gravityMg:g,accelRmsMg:rms(ad),accelPeakMg:Math.max(...ad),gyroRmsDps:rms(gd),gyroPeakDps:Math.max(...gd),gyroBiasDps:bias,gyroBiasMagnitudeDps:norm(bias)};
+  const f=n=>n.toFixed(2);
+  if(g<850 || g>1150) return bad(`Mean acceleration is ${f(g)} mg; expected 850–1150 mg. Save the calibration report so the sensor readings can be checked.`);
+  const failures=[];
+  if(diagnostics.accelRmsMg>20)failures.push(`acceleration variation ${f(diagnostics.accelRmsMg)} mg (limit 20)`);
+  if(diagnostics.accelPeakMg>70)failures.push(`acceleration peak deviation ${f(diagnostics.accelPeakMg)} mg (limit 70)`);
+  if(diagnostics.gyroRmsDps>0.8)failures.push(`gyro variation ${f(diagnostics.gyroRmsDps)} °/s (limit 0.8)`);
+  if(diagnostics.gyroPeakDps>3)failures.push(`gyro peak deviation ${f(diagnostics.gyroPeakDps)} °/s (limit 3)`);
+  if(failures.length)return bad('Stillness check failed: '+failures.join('; ')+'. This can be motion or sensor noise. If the device was stationary, save the calibration report.');
+  if(norm(bias)>3)return bad(`The gyro has a steady offset of ${f(norm(bias))} °/s (limit 3). This is not a motion-variation failure. Save the calibration report before changing the limits.`);
+  const frame=frameForUp(gravity);
+  if(!frame)
     return bad('The bike appears leaned over, or the mounting changed sideways. Hold it upright on level ground.');
-  const left=unit(leftHint.map((x,i)=>x-sideways*up[i]));
-  const forward=unit(cross(left,up));
-  return {ok:true,version:standalone?2:1,windowSeconds:standalone?[time(rows[0]),time(rows.at(-1))]:[1,5],sampleCount:rows.length,forward,left,up,bias,
-    gravityMg:g,accelRmsMg:rms(ad),gyroRmsDps:rms(gd)};
+  return {ok:true,version:standalone?2:1,windowSeconds:standalone?[time(rows[0]),time(rows.at(-1))]:[1,5],sampleCount:rows.length,...frame,bias,
+    gravityMg:g,accelRmsMg:rms(ad),gyroRmsDps:rms(gd),diagnostics};
 }
 export function validCalibration(c){
-  if(!c?.ok || ![1,2].includes(c.version))return false;
+  if(!c?.ok || ![1,2,3].includes(c.version))return false;
   const axes=[c.forward,c.left,c.up];
   if(![...axes,c.bias].every(v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite)))return false;
-  return axes.every(v=>Math.abs(norm(v)-1)<1e-5)&&norm(c.bias)<=3&&
-    Math.abs(dot(axes[0],axes[1]))<1e-5&&Math.abs(dot(axes[0],axes[2]))<1e-5&&
-    Math.abs(dot(axes[1],axes[2]))<1e-5&&dot(cross(axes[0],axes[1]),axes[2])>.99999;
+  const validFrame=frame=>{const a=[frame?.forward,frame?.left,frame?.up];return a.every(v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite)&&Math.abs(norm(v)-1)<1e-5)&&Math.abs(dot(a[0],a[1]))<1e-5&&Math.abs(dot(a[0],a[2]))<1e-5&&Math.abs(dot(a[1],a[2]))<1e-5&&dot(cross(a[0],a[1]),a[2])>.99999;};
+  if(c.version===3&&(!c.levelReferenced||!Array.isArray(c.measuredUp)||c.measuredUp.length!==3||!c.measuredUp.every(Number.isFinite)||Math.abs(norm(c.measuredUp)-1)>=1e-5||dot(c.measuredUp,c.up)<.99999||!validFrame(c.levelFrame)))return false;
+  return validFrame(c)&&norm(c.bias)<=3&&
+    axes.every(v=>Math.abs(norm(v)-1)<1e-5);
+}
+export function hasLevelReference(c){return validCalibration(c)&&c.version===3&&c.levelReferenced===true;}
+export function setLevelReference(c){
+  if(!validCalibration(c))return null;
+  const measuredUp=c.version===3?c.measuredUp:c.up;
+  const levelFrame={forward:[...c.forward],left:[...c.left],up:[...c.up]};
+  return {...structuredClone(c),version:3,levelReferenced:true,levelFrame,measuredUp:[...measuredUp]};
+}
+export function useLevelReference(c,reference){
+  if(!validCalibration(c)||!hasLevelReference(reference))return null;
+  const measuredUp=c.version===3?c.measuredUp:c.up,frame=frameForUp(measuredUp,reference.levelFrame.left);
+  if(!frame)return null;
+  const levelFrame={forward:[...reference.levelFrame.forward],left:[...reference.levelFrame.left],up:[...reference.levelFrame.up]};
+  return {...structuredClone(c),version:3,levelReferenced:true,...frame,levelFrame,measuredUp:[...measuredUp]};
 }
 export function samplesFromCsv(csv){return csv.trim().split(/\r?\n/).slice(1).map(line=>{
   const p=line.split(',').map(Number);return {aX:p[2],aY:p[3],aZ:p[4],gX:p[5],gY:p[6],gZ:p[7],ts:p[13]/1000,elapsed_ms:p[13]};

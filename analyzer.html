@@ -54,7 +54,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 <header>
   <div>
     <h1>Bike Coach · Analyzer</h1>
-    <div class="sub"><a href="index.html?v=3" style="color:#86efac">← Download a ride</a> · Open a saved recording or view your latest download.</div>
+    <div class="sub"><a href="index.html?v=4" style="color:#86efac">← Download a ride</a> · Open a saved recording or view your latest download.</div>
   </div>
   <div class="controls">
     <select id="baud"><option value="115200" selected>115200 baud</option><option value="57600">57600 baud</option><option value="9600">9600 baud</option></select>
@@ -102,7 +102,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
   <section class="card" style="margin-bottom:14px">
     <div class="charthead"><h2>Calibration for this ride</h2></div>
     <p id="calibrationStatus" role="status">Open a ride to view its saved calibration.</p>
-    <p style="font-size:14px;color:var(--muted)">Assumes the bike was upright and still on level ground, with the same mounting direction and only its mounting pitch changed. Stillness can be checked; level ground cannot. Acceleration plots still include gravity.</p>
+    <p style="font-size:14px;color:var(--muted)">The saved level reference establishes the bike’s forward and left directions. This ride’s fresh gravity calibration compensates its current pitch and roll. Stillness can be checked; level ground cannot. Acceleration plots still include gravity.</p>
   </section>
 
   <div class="row">
@@ -131,7 +131,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 </main>
 
 <script type="module">
-import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=3";
+import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=5";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
