@@ -100,21 +100,15 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
   </div>
 
   <section class="card" style="margin-bottom:14px">
-    <div class="charthead"><h2>Bike-frame calibration</h2><div class="legend">Derived from dataLog00026.TXT</div></div>
-    <div style="font-size:13px;line-height:1.55;color:var(--muted)">
-      The analyzer rotates each raw IMU sample into the bike coordinate system before plotting or interpreting it.
-      Calibration basis in raw IMU XYZ:
-      <b style="color:var(--text)">Forward</b> = [0.547, -0.666, 0.506],
-      <b style="color:var(--text)">Left</b> = [-0.837, -0.415, 0.357],
-      <b style="color:var(--text)">Up</b> = [-0.028, -0.619, -0.785].
-      Use Raw IMU XYZ only for troubleshooting.
-    </div>
+    <div class="charthead"><h2>Calibration for this ride</h2></div>
+    <p id="calibrationStatus" role="status">Open a ride to check its first five seconds.</p>
+    <p style="font-size:14px;color:var(--muted)">Assumes the bike was upright and still on level ground, with the same mounting direction and only its mounting pitch changed. Stillness can be checked; level ground cannot. Acceleration plots still include gravity.</p>
   </section>
 
   <div class="row">
-    <section class="chartwrap"><div class="charthead"><h2>Acceleration — Bike Frame</h2><div class="legend" id="accLegend">Forward / Left / Up — mg</div></div><canvas id="accChart"></canvas></section>
-    <section class="chartwrap"><div class="charthead"><h2>Rotation — Bike Frame</h2><div class="legend" id="gyroLegend">Roll / Pitch / Yaw rate — °/s</div></div><canvas id="gyroChart"></canvas></section>
-    <section class="chartwrap"><div class="charthead"><h2>Magnetometer — Bike Frame</h2><div class="legend" id="magLegend">Forward / Left / Up — logged units</div></div><canvas id="magChart"></canvas></section>
+    <section class="chartwrap"><div class="charthead"><h2 id="accTitle">Acceleration — Bike Frame</h2><div class="legend" id="accLegend">Forward / Left / Up — mg</div></div><canvas id="accChart"></canvas></section>
+    <section class="chartwrap"><div class="charthead"><h2 id="gyroTitle">Rotation — Bike Frame</h2><div class="legend" id="gyroLegend">Roll / Pitch / Yaw rate — °/s</div></div><canvas id="gyroChart"></canvas></section>
+    <section class="chartwrap"><div class="charthead"><h2 id="magTitle">Magnetometer — Bike Frame</h2><div class="legend" id="magLegend">Forward / Left / Up — logged units</div></div><canvas id="magChart"></canvas></section>
     <section class="chartwrap"><div class="charthead"><h2>Integrated Relative Angle</h2><div class="legend" id="angleLegend">integral of yaw rate — degrees</div></div><canvas id="angleChart"></canvas></section>
   </div>
 
@@ -132,34 +126,30 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
   </section>
 
   <div class="footer">
-    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The tool ignores menu/debug lines and only accepts rows matching the Artemis sensor format. The first-bike-test overlay labels the controlled protocol: stationary, normal riding, acceleration/braking, turns/slalom, walking the bike, normal riding, and stationary. The default Bike Frame rotates raw XYZ into Forward/Left/Up and Roll/Pitch/Yaw-rate channels using the calibration derived from dataLog00026.TXT. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
+    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The tool ignores menu/debug lines and only accepts rows matching the Artemis sensor format. The first-bike-test overlay labels the controlled protocol: stationary, normal riding, acceleration/braking, turns/slalom, walking the bike, normal riding, and stationary. The Bike Frame uses this ride’s opening stationary samples and the known mounting direction. These are measured acceleration and rotation rates; gravity removal and automatic event detection are not yet applied. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
   </div>
 </main>
 
-<script>
+<script type="module">
+import {calibrate,applyCalibration} from "./calibration.mjs";
+let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
-// Orthogonal bike-frame basis expressed in raw IMU coordinates.
-// Derived from the controlled 5-minute bike test in dataLog00026.TXT.
-const BIKE_FWD=[0.547,-0.666,0.506];
-const BIKE_LEFT=[-0.837,-0.415,0.357];
-const BIKE_UP=[-0.028,-0.619,-0.785];
-function dot3(x,y,z,v){return x*v[0]+y*v[1]+z*v[2]}
-function addBikeFrame(s){
-  // Linear acceleration / gravity components in the bike frame
-  s.aForward=dot3(s.aX,s.aY,s.aZ,BIKE_FWD);
-  s.aLeft=dot3(s.aX,s.aY,s.aZ,BIKE_LEFT);
-  s.aUp=dot3(s.aX,s.aY,s.aZ,BIKE_UP);
-
-  // Angular rates about the bike axes
-  s.rollRate=dot3(s.gX,s.gY,s.gZ,BIKE_FWD);   // rotation about forward axis
-  s.pitchRate=dot3(s.gX,s.gY,s.gZ,BIKE_LEFT); // rotation about left axis
-  s.yawRate=dot3(s.gX,s.gY,s.gZ,BIKE_UP);     // rotation about vertical axis
-
-  // Magnetometer rotated into the same bike frame
-  s.mForward=dot3(s.mX,s.mY,s.mZ,BIKE_FWD);
-  s.mLeft=dot3(s.mX,s.mY,s.mZ,BIKE_LEFT);
-  s.mUp=dot3(s.mX,s.mY,s.mZ,BIKE_UP);
-  return s;
+function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
+function calibrateRide(){
+  rideCalibration=calibrate(samples);
+  const panel=$("calibrationStatus");
+  $("coordFrame").options[0].disabled=!rideCalibration.ok;
+  if(rideCalibration.ok){
+    samples.forEach(s=>applyCalibration(s,rideCalibration));
+    $("coordFrame").value="bike";
+    panel.textContent=`Opening samples passed the stillness checks (${rideCalibration.sampleCount} samples). Bike axes adjusted; stationary gyro bias removed. This assumes the bike was upright on level ground.`;
+    panel.style.color="var(--good)";
+  }else{
+    $("coordFrame").value="raw";
+    panel.textContent="Calibration unavailable: "+rideCalibration.reason+" Showing raw sensor axes instead.";
+    panel.style.color="var(--warn)";
+  }
+  refreshFrameLabels();
 }
 let port=null, reader=null, keepReading=false, buffer="";
 let samples=[], liveRows=[], angleOffset=0, source="—";
@@ -185,7 +175,7 @@ function parseRow(line){
   if(vals.some(v=>!Number.isFinite(v))) return null;
   const ts=p.length>=14&&p[13]!==''&&Number.isFinite(Number(p[13]))?Number(p[13])/1000:parseTime(p[0],p[1]); if(!Number.isFinite(ts)) return null;
   return addBikeFrame({rtcDate:p[0],rtcTime:p[1],aX:vals[0],aY:vals[1],aZ:vals[2],gX:vals[3],gY:vals[4],gZ:vals[5],
-          mX:vals[6],mY:vals[7],mZ:vals[8],imu_degC:vals[9],output_Hz:vals[10],ts,angle:0});
+          mX:vals[6],mY:vals[7],mZ:vals[8],imu_degC:vals[9],output_Hz:vals[10],elapsed_ms:p.length>=14&&p[13]!==""?Number(p[13]):undefined,ts,angle:0});
 }
 function selectedAngleAxis(){
   if($("coordFrame").value==="bike") return $("yawAxis").value;
@@ -250,6 +240,7 @@ async function disconnectSerial(){
   reader=null;port=null;$("connectBtn").disabled=false;$("disconnectBtn").disabled=true;setStatus("Disconnected");
 }
 function loadText(text,name){
+  rideCalibration=null;
   samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;
   const lines=String(text||"").split(/\r?\n/);
   let rejected=0;
@@ -258,6 +249,7 @@ function loadText(text,name){
     const s=parseRow(line);
     if(s)addSample(s,false); else rejected++;
   }
+  calibrateRide();
   recomputeAngles();
   source=name; $("sourceLabel").textContent="Source: "+name;
   if(samples.length){
@@ -277,7 +269,7 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
+function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to check its first five seconds.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
 function saveCsv(){
   const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
   const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");
@@ -434,6 +426,7 @@ $("connectBtn").onclick=connectSerial;$("disconnectBtn").onclick=disconnectSeria
 $("fileInput").onchange=async e=>{const f=e.target.files[0];try{if(f){if(/\.bin$/i.test(f.name)){const {decode}=await import('./core.mjs');loadText(decode(new Uint8Array(await f.arrayBuffer())).csv,f.name);}else loadText(await f.text(),f.name);}}catch(err){setStatus(err.message);}e.target.value=""};
 function refreshFrameLabels(){
   const bike=$("coordFrame").value==="bike";
+  for(const [id,name] of [["accTitle","Acceleration"],["gyroTitle","Rotation"],["magTitle","Magnetometer"]])$(id).textContent=name+(bike?" — Bike Frame":" — Raw Sensor Axes");
   $("accLegend").textContent=bike?"Forward / Left / Up — mg":"aX / aY / aZ — mg";
   $("gyroLegend").textContent=bike?"Roll / Pitch / Yaw rate — °/s":"gX / gY / gZ — °/s";
   $("magLegend").textContent=bike?"Forward / Left / Up — logged units":"mX / mY / mZ — logged units";
@@ -503,9 +496,9 @@ window.addEventListener("mouseup",endPan);
 refreshFrameLabels();
 window.addEventListener("beforeunload",()=>{if(port)disconnectSerial()});
 requestAnimationFrame(update);
-</script>
-<!-- Mobile v5.1: optimized file rendering and explicit parse diagnostics. -->
-<script type="module">
+
+// Download-to-analyzer handoff.
+
 import {rideStore} from './storage.js';
 if(!navigator.serial){for(const id of ['baud','connectBtn','disconnectBtn'])document.getElementById(id).hidden=true;}
 document.getElementById('showLabels').checked=false;
