@@ -54,7 +54,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 <header>
   <div>
     <h1>Bike Coach · Analyzer</h1>
-    <div class="sub"><a href="index.html" style="color:#86efac">← Download a ride</a> · Open a saved recording or view your latest download.</div>
+    <div class="sub"><a href="index.html?v=3" style="color:#86efac">← Download a ride</a> · Open a saved recording or view your latest download.</div>
   </div>
   <div class="controls">
     <select id="baud"><option value="115200" selected>115200 baud</option><option value="57600">57600 baud</option><option value="9600">9600 baud</option></select>
@@ -101,7 +101,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 
   <section class="card" style="margin-bottom:14px">
     <div class="charthead"><h2>Calibration for this ride</h2></div>
-    <p id="calibrationStatus" role="status">Open a ride to check its first five seconds.</p>
+    <p id="calibrationStatus" role="status">Open a ride to view its saved calibration.</p>
     <p style="font-size:14px;color:var(--muted)">Assumes the bike was upright and still on level ground, with the same mounting direction and only its mounting pitch changed. Stillness can be checked; level ground cannot. Acceleration plots still include gravity.</p>
   </section>
 
@@ -126,23 +126,23 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
   </section>
 
   <div class="footer">
-    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The tool ignores menu/debug lines and only accepts rows matching the Artemis sensor format. The first-bike-test overlay labels the controlled protocol: stationary, normal riding, acceleration/braking, turns/slalom, walking the bike, normal riding, and stationary. The Bike Frame uses this ride’s opening stationary samples and the known mounting direction. These are measured acceleration and rotation rates; gravity removal and automatic event detection are not yet applied. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
+    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The tool ignores menu/debug lines and only accepts rows matching the Artemis sensor format. The first-bike-test overlay labels the controlled protocol: stationary, normal riding, acceleration/braking, turns/slalom, walking the bike, normal riding, and stationary. The Bike Frame uses the separate calibration saved with this ride. These are measured acceleration and rotation rates; gravity removal and automatic event detection are not yet applied. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
   </div>
 </main>
 
 <script type="module">
-import {calibrate,applyCalibration} from "./calibration.mjs";
+import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=3";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
-function calibrateRide(){
-  rideCalibration=calibrate(samples);
+function calibrateRide(attached){
+  rideCalibration=validCalibration(attached)?structuredClone(attached):{ok:false,reason:"No saved calibration is attached to this recording. Use a calibrated CSV or download a ride started after calibration."};
   const panel=$("calibrationStatus");
   $("coordFrame").options[0].disabled=!rideCalibration.ok;
   if(rideCalibration.ok){
     samples.forEach(s=>applyCalibration(s,rideCalibration));
     $("coordFrame").value="bike";
-    panel.textContent=`Opening samples passed the stillness checks (${rideCalibration.sampleCount} samples). Bike axes adjusted; stationary gyro bias removed. This assumes the bike was upright on level ground.`;
+    panel.textContent=`Using this ride’s saved calibration (${rideCalibration.sampleCount} stationary samples). Bike axes adjusted; gyro bias removed. No part of this ride is used to estimate calibration.`;
     panel.style.color="var(--good)";
   }else{
     $("coordFrame").value="raw";
@@ -239,17 +239,17 @@ async function disconnectSerial(){
   try{if(port)await port.close()}catch(e){}
   reader=null;port=null;$("connectBtn").disabled=false;$("disconnectBtn").disabled=true;setStatus("Disconnected");
 }
-function loadText(text,name){
+function loadText(text,name,attached=null){
   rideCalibration=null;
   samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;
   const lines=String(text||"").split(/\r?\n/);
   let rejected=0;
   for(const line of lines){
-    if(!line.trim() || line.trim().startsWith("rtcDate")) continue;
+    if(!line.trim() || line.trim().startsWith("rtcDate") || line.trim().startsWith("# BikeCoachCalibration=")) continue;
     const s=parseRow(line);
     if(s)addSample(s,false); else rejected++;
   }
-  calibrateRide();
+  calibrateRide(attached||csvCalibration(text));
   recomputeAngles();
   source=name; $("sourceLabel").textContent="Source: "+name;
   if(samples.length){
@@ -269,7 +269,7 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to check its first five seconds.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
+function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved calibration.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
 function saveCsv(){
   const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
   const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");
@@ -499,10 +499,10 @@ requestAnimationFrame(update);
 
 // Download-to-analyzer handoff.
 
-import {rideStore} from './storage.js';
+import {rideStore} from './storage.js?v=3';
 if(!navigator.serial){for(const id of ['baud','connectBtn','disconnectBtn'])document.getElementById(id).hidden=true;}
 document.getElementById('showLabels').checked=false;
-if(new URLSearchParams(location.search).has('latest')){try{const r=await rideStore();if(r){loadText(r.csv,r.name);}else setStatus('No downloaded ride yet. Return to Download a ride.');}catch(e){setStatus('Could not open saved ride: '+e.message);}}
+if(new URLSearchParams(location.search).has('latest')){try{const r=await rideStore();if(r){loadText(r.csv,r.name,r.calibration);}else setStatus('No downloaded ride yet. Return to Download a ride.');}catch(e){setStatus('Could not open saved ride: '+e.message);}}
 const nav=document.createElement('div');nav.className='smallrow';nav.style.margin='12px 0';
 for(const [label,factor] of [['Zoom in',0.5],['Zoom out',2]]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{if(samples.length<2)return;const d=visibleData(),first=samples[0].ts,last=samples.at(-1).ts,span=Math.min(last-first,Math.max(.2,(d.at(-1).ts-d[0].ts)*factor)),mid=(d.at(-1).ts+d[0].ts)/2;viewStartTs=Math.max(first,Math.min(last-span,mid-span/2));viewEndTs=viewStartTs+span;};nav.append(b);}
 document.querySelector('.row').before(nav);

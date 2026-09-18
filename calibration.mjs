@@ -8,14 +8,14 @@ const cross = (a,b) => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b
 const acc = s => [s.aX,s.aY,s.aZ];
 const gyro = s => [s.gX,s.gY,s.gZ];
 const mean = a => [0,1,2].map(i=>a.reduce((sum,v)=>sum+v[i],0)/a.length);
-export function calibrate(samples) {
+export function calibrate(samples, standalone=false) {
   const bad = reason => ({ok:false, reason});
   if(!samples.length) return bad('No samples to calibrate.');
   // Use file-relative time, not the phone's clock. Discard the first second of handling.
   const first = samples[0].ts;
   const time = s => Number.isFinite(s.elapsed_ms)?s.elapsed_ms/1000:s.ts-first;
-  const rows = samples.filter(s=>time(s)>=1 && time(s)<=5);
-  if(rows.length<80 || time(rows[0])>1.15 || time(rows.at(-1))<4.85)
+  const rows = standalone ? samples : samples.filter(s=>time(s)>=1 && time(s)<=5);
+  if(rows.length<80 || (standalone ? time(rows.at(-1))-time(rows[0])<3.8 : time(rows[0])>1.15 || time(rows.at(-1))<4.85))
     return bad('Not enough opening data. Record at least six seconds while holding the bike still.');
   for(let i=0;i<rows.length;i++) {
     if(![...acc(rows[i]),...gyro(rows[i]),time(rows[i])].every(Number.isFinite)) return bad('Invalid opening sensor data.');
@@ -34,9 +34,23 @@ export function calibrate(samples) {
     return bad('The bike appears leaned over, or the mounting changed sideways. Hold it upright on level ground.');
   const left=unit(leftHint.map((x,i)=>x-sideways*up[i]));
   const forward=unit(cross(left,up));
-  return {ok:true,version:1,windowSeconds:[1,5],sampleCount:rows.length,forward,left,up,bias,
+  return {ok:true,version:standalone?2:1,windowSeconds:standalone?[time(rows[0]),time(rows.at(-1))]:[1,5],sampleCount:rows.length,forward,left,up,bias,
     gravityMg:g,accelRmsMg:rms(ad),gyroRmsDps:rms(gd)};
 }
+export function validCalibration(c){
+  if(!c?.ok || ![1,2].includes(c.version))return false;
+  const axes=[c.forward,c.left,c.up];
+  if(![...axes,c.bias].every(v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite)))return false;
+  return axes.every(v=>Math.abs(norm(v)-1)<1e-5)&&norm(c.bias)<=3&&
+    Math.abs(dot(axes[0],axes[1]))<1e-5&&Math.abs(dot(axes[0],axes[2]))<1e-5&&
+    Math.abs(dot(axes[1],axes[2]))<1e-5&&dot(cross(axes[0],axes[1]),axes[2])>.99999;
+}
+export function samplesFromCsv(csv){return csv.trim().split(/\r?\n/).slice(1).map(line=>{
+  const p=line.split(',').map(Number);return {aX:p[2],aY:p[3],aZ:p[4],gX:p[5],gY:p[6],gZ:p[7],ts:p[13]/1000,elapsed_ms:p[13]};
+});}
+export const CALIBRATION_PREFIX='# BikeCoachCalibration=';
+export function calibratedCsv(csv,c){return validCalibration(c)?CALIBRATION_PREFIX+JSON.stringify(c)+'\r\n'+csv:csv;}
+export function csvCalibration(csv){const line=csv.split(/\r?\n/).find(x=>x.startsWith(CALIBRATION_PREFIX));if(!line)return null;try{const c=JSON.parse(line.slice(CALIBRATION_PREFIX.length));return validCalibration(c)?c:null;}catch{return null;}}
 export function applyCalibration(s,c) {
   if(!c?.ok) return s;
   const a=acc(s), g=gyro(s).map((x,i)=>x-c.bias[i]), m=[s.mX,s.mY,s.mZ];
