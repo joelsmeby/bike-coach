@@ -1,7 +1,7 @@
 import {orientationAngles,angleLabel} from './orientation.mjs';
 import {Receiver,decode} from './core.mjs';
 import {rideStore,recordStore} from './storage.js?v=3';
-import {calibrate,samplesFromCsv,validCalibration,calibratedCsv,hasLevelReference,setLevelReference,useLevelReference} from './calibration.mjs?v=6';
+import {calibrate,samplesFromCsv,validCalibration,calibratedCsv,hasLevelReference,setLevelReference,useLevelReference} from './calibration.mjs?v=7';
 import {RideWorkflow} from './ride-workflow.mjs';
 const $=id=>document.getElementById(id),uuid=n=>`7b7e${n}-6f1d-4f35-9f55-42494b45434f`,enc=new TextEncoder();
 const workflow=new RideWorkflow();
@@ -135,17 +135,17 @@ $('connect').onclick=async()=>{
 $('calibrate').onclick=()=>run(async()=>{
  try{
   if(workflow.pending)throw Error('Download your current ride before recalibrating.');
-  showCalibration('working','Calibration in progress','Starting the six-second stationary recording…');
+  showCalibration('working','Calibration in progress','Starting the six-second stationary recording. A flat, stable surface is fine.');
   workflow.setCalibration(null);controls();await recordStore(calibrationKey(),null);
   await confirmed('STOP_RIDE',['SAVED,','IDLE']);
   const start=await confirmed('START_RIDE',['LOGGING,']);recording=true;
   const file=start.slice(8);let stopped=false;
   try{
-   const deadline=Date.now()+6000;message('Hold still — 6 seconds. Keep the bike upright on level ground.');
+   const deadline=Date.now()+6000;message('Hold still — 6 seconds. A flat, stable surface is fine.');
    await new Promise((resolve,reject)=>{const timer=setInterval(()=>{
     if(!device?.gatt.connected){clearInterval(timer);reject(Error('Calibration interrupted. Try again.'));return;}
     const remaining=Math.ceil((deadline-Date.now())/1000);
-    if(remaining<=0){clearInterval(timer);resolve();}else{showCalibration('working','Calibration in progress',`Hold still — ${remaining} seconds remaining.`);message(`Hold still — ${remaining} seconds. Keep the bike upright on level ground.`);}
+    if(remaining<=0){clearInterval(timer);resolve();}else{showCalibration('working','Calibration in progress',`Hold still — ${remaining} seconds remaining. A flat, stable surface is fine.`);message(`Hold still — ${remaining} seconds. A flat, stable surface is fine.`);}
    },100);});
    showCalibration('working','Checking calibration','Downloading and checking the sensor sample…');
    const s=await confirmed('STOP_RIDE',['SAVED,']);recording=false;stopped=true;

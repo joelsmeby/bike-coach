@@ -10,8 +10,11 @@ const gyro = s => [s.gX,s.gY,s.gZ];
 const mean = a => [0,1,2].map(i=>a.reduce((sum,v)=>sum+v[i],0)/a.length);
 function frameForUp(measuredUp,leftReference=MOUNT_LEFT){
   const up=unit(measuredUp),leftHint=unit(leftReference),sideways=dot(up,leftHint);
-  if(Math.abs(sideways)>Math.sin(10*Math.PI/180))return null;
-  const left=unit(leftHint.map((x,i)=>x-sideways*up[i]));
+  const projectedLeft=leftHint.map((x,i)=>x-sideways*up[i]);
+  // Any stable orientation is valid unless the left-direction hint is nearly
+  // vertical, where projecting it onto the horizontal plane becomes unstable.
+  if(norm(projectedLeft)<.2)return null;
+  const left=unit(projectedLeft);
   return {forward:unit(cross(left,up)),left,up};
 }
 export function calibrate(samples, standalone=false) {
@@ -47,7 +50,7 @@ export function calibrate(samples, standalone=false) {
   if(norm(bias)>3)return bad(`The gyro has a steady offset of ${f(norm(bias))} °/s (limit 3). This is not a motion-variation failure. Save the calibration report before changing the limits.`);
   const frame=frameForUp(gravity);
   if(!frame)
-    return bad('The bike appears leaned over, or the mounting changed sideways. Hold it upright on level ground.');
+    return bad('The sensor orientation puts its expected left axis almost vertical, so forward direction cannot be determined. Rotate the device to a different stable position and calibrate again.');
   return {ok:true,version:standalone?2:1,windowSeconds:standalone?[time(rows[0]),time(rows.at(-1))]:[1,5],sampleCount:rows.length,...frame,bias,
     gravityMg:g,accelRmsMg:rms(ad),gyroRmsDps:rms(gd),diagnostics};
 }

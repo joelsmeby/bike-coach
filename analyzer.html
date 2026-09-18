@@ -54,7 +54,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 <header>
   <div>
     <h1>Bike Coach · Analyzer</h1>
-    <div class="sub"><a href="index.html?v=5" style="color:#86efac">← Download a ride</a> · Open a saved recording or view your latest download.</div>
+    <div class="sub"><a href="index.html?v=6" style="color:#86efac">← Download a ride</a> · Open a saved recording or view your latest download.</div>
   </div>
   <div class="controls">
     <select id="baud"><option value="115200" selected>115200 baud</option><option value="57600">57600 baud</option><option value="9600">9600 baud</option></select>
@@ -131,7 +131,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 </main>
 
 <script type="module">
-import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=6";
+import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=7";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}

@@ -1,4 +1,4 @@
-import {validCalibration,hasLevelReference,MOUNT_LEFT} from './calibration.mjs?v=6';
+import {validCalibration,hasLevelReference,MOUNT_LEFT} from './calibration.mjs?v=7';
 const dot=(a,b)=>a.reduce((sum,x,i)=>sum+x*b[i],0);
 const unit=a=>a.map(x=>x/Math.hypot(...a));
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
