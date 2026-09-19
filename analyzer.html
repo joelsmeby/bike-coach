@@ -131,7 +131,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 </main>
 
 <script type="module">
-import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=8";
+import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=9";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}

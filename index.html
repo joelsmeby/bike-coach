@@ -4,7 +4,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=6">
 <body><main>
-<header><strong>BIKE COACH · 4.0</strong><a href="analyzer.html?v=7">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 4.1</strong><a href="analyzer.html?v=8">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
@@ -21,7 +21,7 @@
  <div id="setupPanel" class="setup-panel" hidden>
   <h3 id="setupTitle">Add a bike</h3>
   <label class="field" for="bikeName">Bike name<input id="bikeName" maxlength="40" autocomplete="off" placeholder="Mountain Bike"></label>
-  <p>Strap the device securely with the same end pointing toward the front wheel. Hold the bike upright and completely still on reasonably level ground.</p>
+  <p>Strap the device with the USB end pointing toward the front wheel and the SD-card side facing down. Hold the bike upright and completely still on reasonably level ground.</p>
   <button id="beginSetup">Set up this bike</button><button id="useExistingSetup" class="quiet" hidden>Use existing calibration</button><button id="cancelSetup" class="quiet">Cancel</button>
  </div>
  <div class="calibration-result" id="calibrationResult"><strong id="calibrationStatus" role="status" aria-live="polite">Connect to choose a bike</strong><p id="calibrationDetails">Saved profiles stay on this phone.</p></div>
@@ -38,4 +38,4 @@
 </section>
 <section id="result" hidden><h2>Ride ready</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV</button><button id="saveBin">Save original</button></div><p id="saved">Your recording stays on this device.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p>Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=1"></script></body></html>
+</main><script type="module" src="app-v4.js?v=2"></script></body></html>

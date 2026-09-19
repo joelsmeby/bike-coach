@@ -1,16 +1,16 @@
-import {validCalibration,hasLevelReference} from './calibration.mjs?v=8';
+import {validCalibration,hasLevelReference,usesDeviceAxes,DEVICE_AXES_VERSION} from './calibration.mjs?v=9';
 
-export const PROFILE_FORMAT='BikeCoachProfiles1';
+export const PROFILE_FORMAT='BikeCoachProfiles2';
 const cleanName=name=>String(name||'').trim().replace(/\s+/g,' ').slice(0,40);
 
 export function validProfile(profile){
  return !!profile&&typeof profile.id==='string'&&profile.id.length>0&&cleanName(profile.name)===profile.name&&
-  Number.isFinite(profile.mountPitch)&&Number.isFinite(profile.mountRoll)&&hasLevelReference(profile.calibration)&&
+  profile.deviceAxesVersion===DEVICE_AXES_VERSION&&Number.isFinite(profile.mountPitch)&&Number.isFinite(profile.mountRoll)&&hasLevelReference(profile.calibration)&&usesDeviceAxes(profile.calibration)&&
   typeof profile.createdAt==='string'&&typeof profile.updatedAt==='string';
 }
 
 export function createProfile({id,name,calibration,mountPitch,mountRoll,createdAt=new Date().toISOString(),updatedAt=createdAt}){
- const profile={id:String(id||''),name:cleanName(name),mountPitch:Number(mountPitch),mountRoll:Number(mountRoll),createdAt,updatedAt,calibration:structuredClone(calibration)};
+ const profile={id:String(id||''),name:cleanName(name),deviceAxesVersion:DEVICE_AXES_VERSION,mountPitch:Number(mountPitch),mountRoll:Number(mountRoll),createdAt,updatedAt,calibration:structuredClone(calibration)};
  if(!validProfile(profile))throw Error('The bike profile is incomplete.');
  return profile;
 }
