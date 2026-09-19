@@ -101,8 +101,8 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 
   <section class="card" style="margin-bottom:14px">
     <div class="charthead"><h2>Calibration for this ride</h2></div>
-    <p id="calibrationStatus" role="status">Open a ride to view its saved calibration.</p>
-    <p style="font-size:14px;color:var(--muted)">The saved level reference establishes the bike’s forward and left directions. This ride’s fresh gravity calibration compensates its current pitch and roll. Stillness can be checked; level ground cannot. Acceleration plots still include gravity.</p>
+    <p id="calibrationStatus" role="status">Open a ride to view its saved bike profile.</p>
+    <p style="font-size:14px;color:var(--muted)">The bike profile establishes the sensor-to-bike directions and mounting angle. A trustworthy stationary segment at the start or end of a ride can refine that ride’s gyro offset automatically. Acceleration plots still include gravity.</p>
   </section>
 
   <div class="row">
@@ -126,23 +126,23 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
   </section>
 
   <div class="footer">
-    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The tool ignores menu/debug lines and only accepts rows matching the Artemis sensor format. The first-bike-test overlay labels the controlled protocol: stationary, normal riding, acceleration/braking, turns/slalom, walking the bike, normal riding, and stationary. The Bike Frame uses the separate calibration saved with this ride. These are measured acceleration and rotation rates; gravity removal and automatic event detection are not yet applied. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
+    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The Bike Frame uses the selected bike profile copied into this ride. These are measured acceleration and rotation rates; gravity removal and automatic event detection are not yet applied. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
   </div>
 </main>
 
 <script type="module">
-import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=7";
+import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=8";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
 function calibrateRide(attached){
-  rideCalibration=validCalibration(attached)?structuredClone(attached):{ok:false,reason:"No saved calibration is attached to this recording. Use a calibrated CSV or download a ride started after calibration."};
+  rideCalibration=validCalibration(attached)?structuredClone(attached):{ok:false,reason:"No bike profile is attached to this recording. Use a profile-enabled CSV or download a ride started after choosing a bike."};
   const panel=$("calibrationStatus");
   $("coordFrame").options[0].disabled=!rideCalibration.ok;
   if(rideCalibration.ok){
     samples.forEach(s=>applyCalibration(s,rideCalibration));
     $("coordFrame").value="bike";
-    panel.textContent=`Using this ride’s saved calibration (${rideCalibration.sampleCount} stationary samples). Bike axes adjusted; gyro bias removed. No part of this ride is used to estimate calibration.`;
+    panel.textContent=`Using ${rideCalibration.bikeName||"this ride’s saved bike profile"}. Bike axes adjusted; ${rideCalibration.rideBiasAdjusted?`gyro offset refined automatically from ${rideCalibration.rideBiasSamples} stationary ride samples`:'saved gyro offset used because no trustworthy stationary ride segment was found'}.`;
     panel.style.color="var(--good)";
   }else{
     $("coordFrame").value="raw";
@@ -269,7 +269,7 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved calibration.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
+function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
 function saveCsv(){
   const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
   const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");

@@ -92,3 +92,17 @@ export function applyCalibration(s,c) {
   [s.rollRate,s.pitchRate,s.yawRate]=[c.forward,c.left,c.up].map(v=>dot(g,v));
   return s;
 }
+
+export function refineRideGyroBias(csv,c){
+  if(!validCalibration(c))return c;
+  const rows=samplesFromCsv(csv),candidateWindows=[];
+  if(rows.length>=50){candidateWindows.push(rows.slice(0,Math.min(100,rows.length)));if(rows.length>100)candidateWindows.push(rows.slice(-100));}
+  for(const rows of candidateWindows){
+    if(rows.some((row,i)=>i&&(!Number.isFinite(row.ts)||row.ts<=rows[i-1].ts||row.ts-rows[i-1].ts>.15)))continue;
+    const aa=rows.map(acc),gg=rows.map(gyro),gravity=mean(aa),bias=mean(gg),g=norm(gravity);
+    const deviations=(a,m)=>a.map(v=>norm(v.map((x,i)=>x-m[i]))),ad=deviations(aa,gravity),gd=deviations(gg,bias),rms=a=>Math.sqrt(a.reduce((s,x)=>s+x*x,0)/a.length);
+    if(g>=850&&g<=1150&&rms(ad)<=20&&Math.max(...ad)<=70&&rms(gd)<=3.5&&Math.max(...gd)<=8&&norm(bias)<=3)
+      return {...structuredClone(c),bias,rideBiasAdjusted:true,rideBiasSamples:rows.length};
+  }
+  return {...structuredClone(c),rideBiasAdjusted:false,rideBiasSamples:0};
+}

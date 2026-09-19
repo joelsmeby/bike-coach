@@ -1,2 +1,41 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bike Coach · Your ride</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E"><link rel="stylesheet" href="style.css?v=5">
-<body><main><header><strong>BIKE COACH · 3.5</strong><a href="analyzer.html?v=6">Analyzer ↗</a></header><h1>Calibrate once.<br>Then ride.</h1><p>Connect to your Bike Coach, then download your latest recording.</p><section><span id="connection">Not connected</span><button id="connect">Connect Bike Coach</button><h2>1. Calibrate</h2><p>Place the device in any stable position and do not move it. A flat table is fine. We will record, download and check a short calibration sample.</p><button id="calibrate" disabled>Calibrate</button><div class="calibration-result" id="calibrationResult"><strong id="calibrationStatus" role="status" aria-live="polite">Ready to calibrate</strong><p id="calibrationDetails">Connect to Bike Coach, then tap Calibrate.</p></div><div class="orientation" aria-live="polite"><h3>Device orientation</h3><p class="orientation-caption">At the last successful calibration — not a live reading.</p><dl class="angles"><div><dt>Pitch</dt><dd id="orientationPitch">—</dd></div><div><dt>Roll</dt><dd id="orientationRoll">—</dd></div><div><dt>Yaw</dt><dd id="orientationYaw">Not measured</dd></div></dl><p id="orientationNote">Complete calibration to see the device tilt.</p><button id="setLevelReference" disabled>Set level &amp; analysis reference</button><p class="orientation-caption">Put the device in the known level and straight position you want to call zero before calibrating. After calibration passes, leave it in that same position and tap this button. A flat table is valid for bench testing. For riding, keep the intended forward direction consistent. The same reference is used for displayed angles and bike-frame analysis. Pitch + means front up; roll + means left side up. Yaw cannot be measured while stationary.</p></div><button id="calibrationReport" disabled>Save calibration report</button><h2>2. Record your ride</h2><div class="row"><button id="start" disabled>Start ride</button><button id="stop" disabled>Stop recording</button></div><p id="startHelp">Start becomes available after calibration passes and the level reference is set.</p><button id="download" disabled>Download latest ride</button><button id="cancel" hidden>Cancel download</button><label class="option"><input type="checkbox" id="small"> Use smaller packets if a download fails</label><progress id="progress" max="1" value="0"></progress><p id="status" role="status" aria-live="polite">Open this page in Bluefy on your iPhone. Disconnect other Bluetooth apps first.</p></section><section id="result" hidden><h2>Ride ready</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV</button><button id="saveBin">Save original</button></div><p id="saved">Your recording stays on this device.</p><button id="applyCalibration" hidden>Mounting unchanged — use saved calibration for this ride</button><p>Save CSV includes the ride calibration. Save original preserves the unmodified sensor file.</p></section><footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer></main><script type="module" src="app-v3.js?v=8"></script></body></html>
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bike Coach · Your ride</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css?v=6">
+<body><main>
+<header><strong>BIKE COACH · 4.0</strong><a href="analyzer.html?v=7">Analyzer ↗</a></header>
+<h1>Choose your bike.<br>Then ride.</h1>
+<p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
+<section>
+ <span id="connection">Not connected</span><button id="connect">Connect Bike Coach</button>
+ <div class="profile-heading"><h2>Your bike</h2><button id="addBike" disabled>Add a bike</button></div>
+ <label class="field" for="bikeSelect">Bike profile<select id="bikeSelect" disabled><option value="">No saved bikes</option></select></label>
+ <div id="profileCard" class="profile-card" hidden>
+  <strong id="profileName"></strong>
+  <dl class="profile-facts"><div><dt>Mounting pitch</dt><dd id="profilePitch">—</dd></div><div><dt>Mounting roll</dt><dd id="profileRoll">—</dd></div><div><dt>Updated</dt><dd id="profileUpdated">—</dd></div></dl>
+  <p id="profileQuality"></p>
+  <div class="row"><button id="updateBike">Update mounting</button><button id="renameBike">Rename</button></div>
+  <button id="deleteBike" class="quiet">Delete this bike</button>
+ </div>
+ <div id="setupPanel" class="setup-panel" hidden>
+  <h3 id="setupTitle">Add a bike</h3>
+  <label class="field" for="bikeName">Bike name<input id="bikeName" maxlength="40" autocomplete="off" placeholder="Mountain Bike"></label>
+  <p>Strap the device securely with the same end pointing toward the front wheel. Hold the bike upright and completely still on reasonably level ground.</p>
+  <button id="beginSetup">Set up this bike</button><button id="useExistingSetup" class="quiet" hidden>Use existing calibration</button><button id="cancelSetup" class="quiet">Cancel</button>
+ </div>
+ <div class="calibration-result" id="calibrationResult"><strong id="calibrationStatus" role="status" aria-live="polite">Connect to choose a bike</strong><p id="calibrationDetails">Saved profiles stay on this phone.</p></div>
+ <h2>Record your ride</h2>
+ <div class="row"><button id="start" disabled>Start ride</button><button id="stop" disabled>Stop recording</button></div>
+ <p id="startHelp">Connect and choose a bike to start.</p>
+ <button id="download" disabled>Download latest ride</button><button id="cancel" hidden>Cancel download</button>
+ <label class="option"><input type="checkbox" id="small"> Use smaller packets if a download fails</label>
+ <progress id="progress" max="1" value="0"></progress><p id="status" role="status" aria-live="polite">Open this page in Bluefy on your iPhone. Disconnect other Bluetooth apps first.</p>
+</section>
+<section>
+ <h2>Bike profile backup</h2><p>Profiles are stored only on this phone. Export a small backup file before clearing Bluefy data or changing phones.</p>
+ <div class="row"><button id="exportProfiles" disabled>Export profiles</button><button id="importProfiles" disabled>Import profiles</button></div><input id="profileFile" type="file" accept="application/json,.json" hidden>
+</section>
+<section id="result" hidden><h2>Ride ready</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV</button><button id="saveBin">Save original</button></div><p id="saved">Your recording stays on this device.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p>Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
+<footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
+</main><script type="module" src="app-v4.js?v=1"></script></body></html>
