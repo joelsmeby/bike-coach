@@ -113,6 +113,17 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
   </div>
 
   <section class="card" style="margin-top:14px">
+    <div class="charthead"><h2>Automatically detected movement</h2><div class="legend">Initial model trained from the first controlled ride</div></div>
+    <p id="activityStatus" style="font-size:13px;color:var(--muted)">Open a ride to detect movement sections.</p>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Movement</th><th>Ride time</th><th>Duration</th><th>Confidence</th></tr></thead>
+        <tbody id="activityTable"><tr><td colspan="4" style="text-align:center;color:var(--muted)">No ride loaded.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:14px">
     <div class="charthead"><h2>First Bike Test — Segment Analysis</h2><div class="legend">Uses the known 5-minute test protocol</div></div>
     <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:10px">
       Segment labels are positioned relative to the test-start offset above. For dataLog00026.TXT, 18.1 s aligns the protocol with the recording.
@@ -126,12 +137,14 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
   </section>
 
   <div class="footer">
-    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The Bike Frame uses the selected bike profile copied into this ride. These are measured acceleration and rotation rates; gravity removal and automatic event detection are not yet applied. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
+    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The Bike Frame uses the selected bike profile copied into this ride. Automatic movement labels are an early model trained from one controlled ride; collect more labeled rides before relying on them as coaching results. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
   </div>
 </main>
 
 <script type="module">
 import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=9";
+import activityModel from "./activity-model.mjs?v=1";
+import {classifyActivityWindow,activityLabel} from "./activity-detector.mjs?v=1";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
@@ -256,8 +269,10 @@ function loadText(text,name,attached=null){
     viewStartTs=samples[0].ts; viewEndTs=samples[samples.length-1].ts;
     setStatus("Loaded "+samples.length.toLocaleString()+" samples"+(rejected?" ("+rejected+" rows skipped)":""),true);
     renderSegmentTable();
+    renderActivityDetection();
   }else{
     setStatus("No valid Artemis rows found");
+    renderActivityDetection();
   }
 }
 
@@ -269,7 +284,7 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source}
+function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection()}
 function saveCsv(){
   const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
   const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");
@@ -285,6 +300,52 @@ const TEST_PROTOCOL=[
   {name:"Normal riding",start:210,end:270,color:"rgba(96,165,250,.12)"},
   {name:"Stationary",start:270,end:300,color:"rgba(148,163,184,.13)"}
 ];
+function modelRateRows(input,targetRate){
+  if(input.length<2)return input;
+  const bucketSeconds=1/targetRate, start=input[0].ts;
+  const buckets=new Map();
+  for(const row of input){
+    const key=Math.floor((row.ts-start)/bucketSeconds+1e-6);
+    if(!buckets.has(key))buckets.set(key,[]);
+    buckets.get(key).push(row);
+  }
+  return [...buckets.values()].map(group=>{
+    const average=key=>group.reduce((sum,row)=>sum+row[key],0)/group.length;
+    return {ts:average('ts'),aX:average('aX'),aY:average('aY'),aZ:average('aZ'),gX:average('gX'),gY:average('gY'),gZ:average('gZ')};
+  });
+}
+function renderActivityDetection(){
+  const table=$("activityTable"), status=$("activityStatus");
+  if(samples.length<activityModel.sampleRateHz*3){
+    status.textContent="Open a ride to detect movement sections.";
+    table.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--muted)">No ride loaded.</td></tr>';
+    return;
+  }
+  const input=modelRateRows(samples,activityModel.sampleRateHz), start=input[0].ts, end=input[input.length-1].ts;
+  const points=[];
+  for(let center=start+1;center<=end-1;center+=activityModel.strideSeconds){
+    const rows=input.filter(row=>row.ts>=center-1&&row.ts<center+1);
+    if(rows.length<activityModel.sampleRateHz*1.5)continue;
+    const result=classifyActivityWindow(rows,activityModel);
+    points.push({time:center-start,label:result.label,confidence:result.confidence});
+  }
+  const smoothed=points.map((point,index)=>{
+    const nearby=points.slice(Math.max(0,index-2),Math.min(points.length,index+3));
+    const votes={};for(const item of nearby)votes[item.label]=(votes[item.label]||0)+item.confidence;
+    return {...point,label:Object.entries(votes).sort((a,b)=>b[1]-a[1])[0][0]};
+  });
+  const sections=[];
+  for(const point of smoothed){
+    const last=sections.at(-1);
+    if(last&&last.label===point.label){last.end=point.time+.5;last.confidences.push(point.confidence)}
+    else sections.push({label:point.label,start:Math.max(0,point.time-.5),end:point.time+.5,confidences:[point.confidence]});
+  }
+  table.innerHTML=sections.map(section=>{
+    const confidence=mean(section.confidences)*100;
+    return `<tr><td>${activityLabel(section.label)}</td><td>${section.start.toFixed(1)}–${section.end.toFixed(1)} s</td><td>${(section.end-section.start).toFixed(1)} s</td><td>${confidence.toFixed(0)}%</td></tr>`;
+  }).join("")||'<tr><td colspan="4">No complete detection windows.</td></tr>';
+  status.textContent=`Found ${sections.length} movement sections. This is a first-pass model trained from one labeled ride, so treat the labels as suggestions until more rides confirm them.`;
+}
 function mean(a){return a.length?a.reduce((s,v)=>s+v,0)/a.length:NaN}
 function stdev(a){
   if(!a.length)return NaN;
