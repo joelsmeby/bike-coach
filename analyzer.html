@@ -92,10 +92,10 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     <select id="yawAxis"><option value="yawRate" selected>Yaw rate</option><option value="rollRate">Roll rate</option><option value="pitchRate">Pitch rate</option></select>
     <button id="zeroAngle">Zero angle</button>
     <span>Bike frame: Forward / Left / Up acceleration and Roll / Pitch / Yaw rate. Relative angle integrates the selected rotational rate.</span>
-    <span style="margin-left:12px">Test start offset</span>
+    <span id="testControls" hidden><span style="margin-left:12px">Test start offset</span>
     <input id="testOffset" type="number" value="18.1" min="0" max="600" step="0.1">
     <span>seconds</span>
-    <label style="padding:0;border:0;background:none"><input id="showLabels" type="checkbox" checked style="width:auto"> Show test labels</label>
+    <label style="padding:0;border:0;background:none"><input id="showLabels" type="checkbox" checked style="width:auto"> Show known test labels</label></span>
     <button id="fullLogBtn">Show Full Log</button><span>Use the zoom buttons below; drag a chart sideways to move through time.</span>
   </div>
 
@@ -117,13 +117,31 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     <p id="activityStatus" style="font-size:13px;color:var(--muted)">Open a ride to detect movement sections.</p>
     <div style="overflow:auto">
       <table>
-        <thead><tr><th>Movement</th><th>Ride time</th><th>Duration</th><th>Confidence</th></tr></thead>
+        <thead><tr><th>Movement</th><th>Ride time</th><th>Duration</th><th>Model agreement</th></tr></thead>
         <tbody id="activityTable"><tr><td colspan="4" style="text-align:center;color:var(--muted)">No ride loaded.</td></tr></tbody>
       </table>
     </div>
   </section>
 
   <section class="card" style="margin-top:14px">
+    <div class="charthead"><h2>Correct the movement labels</h2><div class="legend">Your corrections become training data</div></div>
+    <p style="font-size:13px;color:var(--muted)">Start with the automatic suggestions, then correct the movement type and start/end time. These labels stay on this phone until you export them.</p>
+    <div class="controls" style="margin-bottom:10px">
+      <button id="useDetectedLabels">Start with detected sections</button>
+      <button id="useKnownLabels" hidden>Use original test labels</button>
+      <button id="addLabelSection">Add a section</button>
+      <button id="exportRideLabels">Export labels</button>
+    </div>
+    <p id="labelComparison" style="font-size:13px;color:var(--muted)">Open a ride to compare predictions with corrected labels.</p>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Correct movement</th><th>Start (s)</th><th>End (s)</th><th></th></tr></thead>
+        <tbody id="rideLabelTable"><tr><td colspan="4" style="text-align:center;color:var(--muted)">No ride loaded.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="knownTestSection" style="margin-top:14px" hidden>
     <div class="charthead"><h2>First Bike Test — Segment Analysis</h2><div class="legend">Uses the known 5-minute test protocol</div></div>
     <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:10px">
       Segment labels are positioned relative to the test-start offset above. For dataLog00026.TXT, 18.1 s aligns the protocol with the recording.
@@ -145,6 +163,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=9";
 import activityModel from "./activity-model.mjs?v=1";
 import {classifyActivityWindow,activityLabel} from "./activity-detector.mjs?v=1";
+import {MOVEMENT_LABELS,cleanRideLabels,compareRideLabels,labelFile} from "./ride-labels.mjs?v=1";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
@@ -166,6 +185,7 @@ function calibrateRide(attached){
 }
 let port=null, reader=null, keepReading=false, buffer="";
 let samples=[], liveRows=[], angleOffset=0, source="—";
+let detectedActivitySections=[],correctedRideLabels=[];
 let viewStartTs=null, viewEndTs=null, dragging=null;
 const MAX_KEEP=120000;
 
@@ -270,6 +290,7 @@ function loadText(text,name,attached=null){
     setStatus("Loaded "+samples.length.toLocaleString()+" samples"+(rejected?" ("+rejected+" rows skipped)":""),true);
     renderSegmentTable();
     renderActivityDetection();
+    loadRideLabels();
   }else{
     setStatus("No valid Artemis rows found");
     renderActivityDetection();
@@ -284,7 +305,7 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection()}
+function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels()}
 function saveCsv(){
   const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
   const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");
@@ -292,13 +313,13 @@ function saveCsv(){
 }
 
 const TEST_PROTOCOL=[
-  {name:"Stationary",start:0,end:30,color:"rgba(148,163,184,.13)"},
-  {name:"Normal riding",start:30,end:90,color:"rgba(96,165,250,.12)"},
-  {name:"Accel / brake",start:90,end:120,color:"rgba(245,158,11,.14)"},
-  {name:"Turns / slalom",start:120,end:180,color:"rgba(192,132,252,.13)"},
-  {name:"Walk bike",start:180,end:210,color:"rgba(52,211,153,.13)"},
-  {name:"Normal riding",start:210,end:270,color:"rgba(96,165,250,.12)"},
-  {name:"Stationary",start:270,end:300,color:"rgba(148,163,184,.13)"}
+  {label:"stationary",name:"Stationary",start:0,end:30,color:"rgba(148,163,184,.13)"},
+  {label:"normal_riding",name:"Normal riding",start:30,end:90,color:"rgba(96,165,250,.12)"},
+  {label:"accel_brake",name:"Accel / brake",start:90,end:120,color:"rgba(245,158,11,.14)"},
+  {label:"turns_slalom",name:"Turns / slalom",start:120,end:180,color:"rgba(192,132,252,.13)"},
+  {label:"walk_bike",name:"Walk bike",start:180,end:210,color:"rgba(52,211,153,.13)"},
+  {label:"normal_riding",name:"Normal riding",start:210,end:270,color:"rgba(96,165,250,.12)"},
+  {label:"stationary",name:"Stationary",start:270,end:300,color:"rgba(148,163,184,.13)"}
 ];
 function modelRateRows(input,targetRate){
   if(input.length<2)return input;
@@ -318,6 +339,7 @@ function renderActivityDetection(){
   const table=$("activityTable"), status=$("activityStatus");
   if(samples.length<activityModel.sampleRateHz*3){
     status.textContent="Open a ride to detect movement sections.";
+    detectedActivitySections=[];
     table.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--muted)">No ride loaded.</td></tr>';
     return;
   }
@@ -344,7 +366,42 @@ function renderActivityDetection(){
     const confidence=mean(section.confidences)*100;
     return `<tr><td>${activityLabel(section.label)}</td><td>${section.start.toFixed(1)}–${section.end.toFixed(1)} s</td><td>${(section.end-section.start).toFixed(1)} s</td><td>${confidence.toFixed(0)}%</td></tr>`;
   }).join("")||'<tr><td colspan="4">No complete detection windows.</td></tr>';
+  detectedActivitySections=sections.map(({label,start,end})=>({label,start,end}));
   status.textContent=`Found ${sections.length} movement sections. This is a first-pass model trained from one labeled ride, so treat the labels as suggestions until more rides confirm them.`;
+}
+function rideDuration(){return samples.length?Math.max(0,samples.at(-1).ts-samples[0].ts):0}
+function rideLabelKey(){return `bikecoach.labels.v1:${source}:${samples.length}:${rideDuration().toFixed(1)}`}
+function isOriginalTrainingRide(){return /(^|[\\/])dataLog00026\.TXT$/i.test(source)}
+function persistRideLabels(){
+  if(!samples.length)return;
+  try{localStorage.setItem(rideLabelKey(),JSON.stringify(cleanRideLabels(correctedRideLabels,rideDuration())))}catch(error){console.warn(error)}
+}
+function loadRideLabels(){
+  correctedRideLabels=[];
+  try{correctedRideLabels=cleanRideLabels(JSON.parse(localStorage.getItem(rideLabelKey())||"[]"),rideDuration())}catch(error){console.warn(error)}
+  const original=isOriginalTrainingRide();
+  $("useKnownLabels").hidden=!original;$("knownTestSection").hidden=!original;$("testControls").hidden=!original;
+  renderRideLabels();
+}
+function renderRideLabels(){
+  const table=$("rideLabelTable"),comparison=$("labelComparison");
+  if(!samples.length){table.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--muted)">No ride loaded.</td></tr>';comparison.textContent="Open a ride to compare predictions with corrected labels.";return}
+  const choices=selected=>MOVEMENT_LABELS.map(([value,name])=>`<option value="${value}"${value===selected?' selected':''}>${name}</option>`).join("");
+  table.innerHTML=correctedRideLabels.map((segment,index)=>`<tr><td><select data-label-index="${index}" data-label-field="label">${choices(segment.label)}</select></td><td><input type="number" min="0" max="${rideDuration().toFixed(1)}" step="0.5" value="${segment.start.toFixed(1)}" data-label-index="${index}" data-label-field="start"></td><td><input type="number" min="0" max="${rideDuration().toFixed(1)}" step="0.5" value="${segment.end.toFixed(1)}" data-label-index="${index}" data-label-field="end"></td><td><button data-delete-label="${index}">Delete</button></td></tr>`).join("")||'<tr><td colspan="4" style="text-align:center;color:var(--muted)">No corrected labels yet. Start with detected sections or add one.</td></tr>';
+  const result=compareRideLabels(detectedActivitySections,correctedRideLabels,rideDuration());
+  if(result.accuracy===null)comparison.textContent="Add corrected labels to measure how well the automatic suggestions match.";
+  else {
+    const common=Object.entries(result.mismatches).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([pair,count])=>`${pair.replace('->',' predicted as ')} (${count}s)`).join('; ');
+    comparison.textContent=`Predictions match ${(result.accuracy*100).toFixed(1)}% of ${result.comparedSeconds} labeled seconds.${common?' Main mismatches: '+common+'.':''}`;
+  }
+}
+function useDetectedAsLabels(){correctedRideLabels=cleanRideLabels(detectedActivitySections,rideDuration());persistRideLabels();renderRideLabels()}
+function useKnownTestLabels(){correctedRideLabels=TEST_PROTOCOL.map(({label,start,end})=>({label,start,end}));persistRideLabels();renderRideLabels()}
+function addRideLabel(){const start=correctedRideLabels.at(-1)?.end||0;correctedRideLabels.push({label:"unknown",start,end:Math.min(rideDuration(),start+10)});renderRideLabels()}
+function exportRideLabels(){
+  if(!samples.length||!correctedRideLabels.length)return;
+  const text=JSON.stringify(labelFile(source,rideDuration(),correctedRideLabels),null,2)+"\n";
+  const blob=new Blob([text],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=source.replace(/\.[^.]+$/,"")+".labels.json";a.click();URL.revokeObjectURL(a.href);
 }
 function mean(a){return a.length?a.reduce((s,v)=>s+v,0)/a.length:NaN}
 function stdev(a){
@@ -501,6 +558,21 @@ $("zeroAngle").onclick=()=>{if(samples.length)angleOffset=samples[samples.length
 $("testOffset").onchange=renderSegmentTable;
 $("windowSec").onchange=()=>{viewStartTs=null;viewEndTs=null;};
 $("showLabels").onchange=()=>{};
+$("useDetectedLabels").onclick=useDetectedAsLabels;
+$("useKnownLabels").onclick=useKnownTestLabels;
+$("addLabelSection").onclick=addRideLabel;
+$("exportRideLabels").onclick=exportRideLabels;
+$("rideLabelTable").onchange=event=>{
+  const index=Number(event.target.dataset.labelIndex),field=event.target.dataset.labelField;
+  if(!Number.isInteger(index)||!field||!correctedRideLabels[index])return;
+  correctedRideLabels[index][field]=field==="label"?event.target.value:Number(event.target.value);
+  correctedRideLabels=cleanRideLabels(correctedRideLabels,rideDuration());persistRideLabels();renderRideLabels();
+};
+$("rideLabelTable").onclick=event=>{
+  const index=Number(event.target.dataset.deleteLabel);
+  if(!Number.isInteger(index))return;
+  correctedRideLabels.splice(index,1);persistRideLabels();renderRideLabels();
+};
 $("fullLogBtn").onclick=()=>{
   if(!samples.length)return;
   viewStartTs=samples[0].ts;
