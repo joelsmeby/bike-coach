@@ -9,6 +9,7 @@ export const MOVEMENT_LABELS = [
   ["turns_slalom", "Turning / slalom (combined)"],
   ["walk_bike", "Walking the bike"],
   ["rough_impact", "Rough surface / impact"],
+  ["exclude", "Exclude / transition"],
   ["unknown", "Unknown / unsure"]
 ];
 

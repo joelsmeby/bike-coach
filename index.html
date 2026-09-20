@@ -4,7 +4,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=6">
 <body><main>
-<header><strong>BIKE COACH · 4.3</strong><a href="analyzer.html?v=10">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 4.4</strong><a href="analyzer.html?v=11">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
@@ -28,6 +28,13 @@
  <h2>Record your ride</h2>
  <div class="row"><button id="start" disabled>Start ride</button><button id="stop" disabled>Stop recording</button></div>
  <p id="startHelp">Connect and choose a bike to start.</p>
+ <div class="guided-card">
+  <h3>Guided three-minute training ride</h3>
+  <p>The app records exact labels while spoken prompts guide you through stationary, straight riding, acceleration, braking, turns and walking.</p>
+  <button id="guidedTraining" disabled>Start guided training ride</button>
+  <button id="cancelTraining" class="quiet" hidden>Cancel training ride</button>
+  <div id="guidedStatus" class="calibration-result" hidden aria-live="polite"><strong id="guidedInstruction">Ready</strong><p id="guidedTime">3:00 remaining</p></div>
+ </div>
  <button id="download" disabled>Download latest ride</button><button id="cancel" hidden>Cancel download</button>
  <label class="option"><input type="checkbox" id="small"> Use smaller packets if a download fails</label>
  <progress id="progress" max="1" value="0"></progress><p id="status" role="status" aria-live="polite">Open this page in Bluefy on your iPhone. Disconnect other Bluetooth apps first.</p>
@@ -36,6 +43,6 @@
  <h2>Bike profile backup</h2><p>Profiles are stored only on this phone. Export a small backup file before clearing Bluefy data or changing phones.</p>
  <div class="row"><button id="exportProfiles" disabled>Export profiles</button><button id="importProfiles" disabled>Import profiles</button></div><input id="profileFile" type="file" accept="application/json,.json" hidden>
 </section>
-<section id="result" hidden><h2>Ride ready</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV</button><button id="saveBin">Save original</button></div><p id="saved">Your recording stays on this device.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p>Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
+<section id="result" hidden><h2>Ride ready</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV</button><button id="saveBin">Save original</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">Your recording stays on this device.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=2"></script></body></html>
+</main><script type="module" src="app-v4.js?v=3"></script></body></html>
