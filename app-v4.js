@@ -128,7 +128,7 @@ async function performGuidedTraining(){
 $('guidedTraining').onclick=()=>{unlockAudio();const voice=speak('Bike Coach audio is ready. Starting the guided training ride.');if(!voice)message('Spoken instructions are unavailable in this browser. Keep the screen visible for cues.');return run(performGuidedTraining);};
 $('cancel').onclick=()=>failTransfer(Error('Download cancelled. The original stays on the board.'));
 $('applyCalibration').onclick=()=>run(async()=>{if(!ride||!selectedProfile)return;const r={...ride,calibration:profileCalibration(selectedProfile)};await rideStore(r);showRide(r);message(`${selectedProfile.name} profile attached to this ride.`);});
-$('analyze').onclick=()=>location.href='analyzer.html?v=11&latest=1';
+$('analyze').onclick=()=>location.href='analyzer.html?v=13&latest=1';
 function save(csv){if(!ride)return;const base=calibratedCsv(ride.csv,ride.calibration),data=csv?trainingCsv(base,ride.trainingLabels):ride.bytes,url=URL.createObjectURL(new Blob([data],{type:csv?'text/csv':'application/octet-stream'})),a=document.createElement('a');a.href=url;a.download=ride.name.replace(/\.[^.]+$/,'')+(csv?'.csv':'.bin');a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 $('saveCsv').onclick=()=>save(true);$('saveBin').onclick=()=>save(false);
 $('saveTrainingLabels').onclick=()=>{if(!ride?.trainingLabels)return;const url=URL.createObjectURL(new Blob([JSON.stringify(ride.trainingLabels,null,2)+'\n'],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=ride.name.replace(/\.[^.]+$/,'')+'.labels.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);};

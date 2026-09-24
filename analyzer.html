@@ -125,12 +125,13 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 
   <section class="card" style="margin-top:14px">
     <div class="charthead"><h2>Correct the movement labels</h2><div class="legend">Your corrections become training data</div></div>
-    <p style="font-size:13px;color:var(--muted)">Start with the automatic suggestions, then correct the movement type and start/end time. These labels stay on this phone until you export them.</p>
+    <p style="font-size:13px;color:var(--muted)">Start with the automatic suggestions, then correct the movement type and start/end time. Export training package creates one file containing this ride, its bike orientation and your corrected labels.</p>
     <div class="controls" style="margin-bottom:10px">
       <button id="useDetectedLabels">Start with detected sections</button>
       <button id="useKnownLabels" hidden>Load original labels for comparison</button>
       <button id="addLabelSection">Add a section</button>
-      <button id="exportRideLabels">Export labels</button>
+      <button id="exportRideLabels">Export labels only</button>
+      <button class="primary" id="exportTrainingPackage">Export training package</button>
     </div>
     <p id="labelComparison" style="font-size:13px;color:var(--muted)">Open a ride to compare predictions with corrected labels.</p>
     <div style="overflow:auto">
@@ -165,6 +166,7 @@ import activityModel from "./activity-model.mjs?v=1";
 import {classifyActivityWindow,activityLabel} from "./activity-detector.mjs?v=1";
 import {MOVEMENT_LABELS,cleanRideLabels,compareRideLabels,labelFile} from "./ride-labels.mjs?v=1";
 import {trainingLabelsFromCsv} from "./guided-training.mjs?v=1";
+import {buildTrainingPackage,trainingPackageName} from "./training-package.mjs?v=1";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
@@ -185,7 +187,7 @@ function calibrateRide(attached){
   refreshFrameLabels();
 }
 let port=null, reader=null, keepReading=false, buffer="";
-let samples=[], liveRows=[], angleOffset=0, source="—";
+let samples=[], liveRows=[], loadedRideText="", angleOffset=0, source="—";
 let detectedActivitySections=[],correctedRideLabels=[];
 let viewStartTs=null, viewEndTs=null, dragging=null;
 const MAX_KEEP=120000;
@@ -275,7 +277,7 @@ async function disconnectSerial(){
 }
 function loadText(text,name,attached=null,attachedLabels=null){
   rideCalibration=null;
-  samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;
+  samples=[];liveRows=[];loadedRideText=String(text||"");angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;
   const lines=String(text||"").split(/\r?\n/);
   let rejected=0;
   for(const line of lines){
@@ -306,7 +308,7 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels()}
+function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];loadedRideText="";angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels()}
 function saveCsv(){
   const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
   const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");
@@ -400,10 +402,35 @@ function renderRideLabels(){
 function useDetectedAsLabels(){correctedRideLabels=cleanRideLabels(detectedActivitySections,rideDuration());persistRideLabels();renderRideLabels()}
 function useKnownTestLabels(){correctedRideLabels=TEST_PROTOCOL.map(({label,start,end})=>({label,start,end}));persistRideLabels();renderRideLabels()}
 function addRideLabel(){const start=correctedRideLabels.at(-1)?.end||0;correctedRideLabels.push({label:"unknown",start,end:Math.min(rideDuration(),start+10)});renderRideLabels()}
-function exportRideLabels(){
-  if(!samples.length||!correctedRideLabels.length)return;
-  const text=JSON.stringify(labelFile(source,rideDuration(),correctedRideLabels),null,2)+"\n";
-  const blob=new Blob([text],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=source.replace(/\.[^.]+$/,"")+".labels.json";a.click();URL.revokeObjectURL(a.href);
+async function deliverExport(blob,name,title){
+  try{
+    const file=typeof File==='undefined'?null:new File([blob],name,{type:blob.type});
+    if(file&&navigator.share&&navigator.canShare?.({files:[file]})){
+      $("labelComparison").textContent=`Choose Save to Files in the share sheet to save ${name}.`;
+      await navigator.share({files:[file],title});
+      $("labelComparison").textContent=`${name} was exported. If you chose Save to Files, open the Files app to find it.`;
+      return true;
+    }
+  }catch(error){if(error?.name==='AbortError'){$("labelComparison").textContent="Export cancelled. Tap the export button when you are ready to save it.";return false;}}
+  const a=document.createElement("a"),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.style.display="none";document.body.append(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);a.remove?.();},60000);
+  $("labelComparison").textContent=`${name} was prepared. Check the Files app under Downloads.`;
+  return true;
+}
+async function exportRideLabels(){
+  if(!samples.length||!correctedRideLabels.length){$("labelComparison").textContent="Add or load movement labels before exporting.";return;}
+  const text=JSON.stringify(labelFile(source,rideDuration(),correctedRideLabels),null,2)+"\n",name=source.replace(/\.[^.]+$/,"")+".labels.json";
+  await deliverExport(new Blob([text],{type:"application/json"}),name,"Bike Coach movement labels");
+}
+async function exportTrainingPackage(){
+  if(!samples.length||!correctedRideLabels.length){$("labelComparison").textContent="Review or load movement labels before exporting a training package.";return;}
+  $("labelComparison").textContent="Building the training package…";
+  try{
+    const csv=loadedRideText||HEADER.join(",")+"\n"+samples.map(sample=>HEADER.map(key=>sample[key]??"").join(",")).join("\n")+"\n";
+    const labels=labelFile(source,rideDuration(),correctedRideLabels),training=await buildTrainingPackage({sourceFile:source,csv,calibration:rideCalibration,labels,durationSeconds:rideDuration(),sampleCount:samples.length});
+    const name=trainingPackageName(source),text=JSON.stringify(training)+"\n";
+    await deliverExport(new Blob([text],{type:"application/json"}),name,"Bike Coach training package");
+  }catch(error){$("labelComparison").textContent=`Could not build the training package: ${error.message}`;}
 }
 function mean(a){return a.length?a.reduce((s,v)=>s+v,0)/a.length:NaN}
 function stdev(a){
@@ -564,6 +591,7 @@ $("useDetectedLabels").onclick=useDetectedAsLabels;
 $("useKnownLabels").onclick=useKnownTestLabels;
 $("addLabelSection").onclick=addRideLabel;
 $("exportRideLabels").onclick=exportRideLabels;
+$("exportTrainingPackage").onclick=exportTrainingPackage;
 $("rideLabelTable").onchange=event=>{
   const index=Number(event.target.dataset.labelIndex),field=event.target.dataset.labelField;
   if(!Number.isInteger(index)||!field||!correctedRideLabels[index])return;
