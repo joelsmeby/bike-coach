@@ -4,12 +4,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=6">
 <body><main>
-<header><strong>BIKE COACH · 4.4</strong><a href="analyzer.html?v=11">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 4.6</strong><a href="analyzer.html?v=11">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
  <span id="connection">Not connected</span><button id="connect">Connect Bike Coach</button>
- <div class="profile-heading"><h2>Your bike</h2><button id="addBike" disabled>Add a bike</button></div>
+ <div class="profile-heading"><h2>Your bike</h2><button id="addBike">Add a bike</button></div>
  <label class="field" for="bikeSelect">Bike profile<select id="bikeSelect" disabled><option value="">No saved bikes</option></select></label>
  <div id="profileCard" class="profile-card" hidden>
   <strong id="profileName"></strong>
@@ -31,6 +31,8 @@
  <div class="guided-card">
   <h3>Guided three-minute training ride</h3>
   <p>The app records exact labels while spoken prompts guide you through stationary, straight riding, acceleration, braking, turns and walking.</p>
+  <button id="testAudio" class="quiet">Test guided audio</button>
+  <p>Test the audio before riding and turn up your phone volume. Starting the guided ride also activates audio.</p>
   <button id="guidedTraining" disabled>Start guided training ride</button>
   <button id="cancelTraining" class="quiet" hidden>Cancel training ride</button>
   <div id="guidedStatus" class="calibration-result" hidden aria-live="polite"><strong id="guidedInstruction">Ready</strong><p id="guidedTime">3:00 remaining</p></div>
@@ -45,4 +47,4 @@
 </section>
 <section id="result" hidden><h2>Ride ready</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV</button><button id="saveBin">Save original</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">Your recording stays on this device.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=3"></script></body></html>
+</main><script type="module" src="app-v4.js?v=5"></script></body></html>
