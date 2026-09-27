@@ -5,7 +5,7 @@ import {calibrate,samplesFromCsv,validCalibration,calibratedCsv,setLevelReferenc
 import {createProfile,updateProfile,validProfile,exportProfiles as profileBackup,importProfiles as readProfileBackup} from './profiles.mjs?v=2';
 import {RideWorkflow} from './ride-workflow.mjs';
 import {GUIDED_PROTOCOL,GUIDED_DURATION_SECONDS,guidedTrainingLabels,trainingCsv} from './guided-training.mjs?v=1';
-import {parseFileReply,fileRequest,parseTextRecording,LegacyReceiver} from './file-browser.mjs?v=3';
+import {parseFileReply,fileRequest,parseTextRecording,LegacyReceiver} from './file-browser.mjs?v=4';
 
 const $=id=>document.getElementById(id),uuid=n=>`7b7e${n}-6f1d-4f35-9f55-42494b45434f`,enc=new TextEncoder();
 const workflow=new RideWorkflow();
@@ -46,7 +46,7 @@ function controls(){
  $('start').disabled=!connected||busy||recording||settingUp||!selectedProfile||!!workflow.pending;$('stop').disabled=!connected||busy||!recording;$('download').disabled=!connected||busy||recording;
  $('listFiles').disabled=!connected||busy||recording;
  $('moreFiles').disabled=!connected||busy||recording;
- for(const button of $('fileList').querySelectorAll('button'))button.disabled=!connected||busy||recording;
+ for(const button of $('fileList').querySelectorAll('button'))button.disabled=!connected||busy||recording||button.dataset.unavailable==='true';
  $('guidedTraining').disabled=!connected||busy||recording||settingUp||!selectedProfile||!!workflow.pending;$('cancelTraining').hidden=!guidedActive;
  $('testAudio').disabled=busy;$('small').disabled=busy;$('cancel').hidden=!active;$('analyze').disabled=busy;$('applyCalibration').hidden=!ride||validCalibration(ride.calibration)||!selectedProfile;$('applyCalibration').disabled=busy;
  $('exportProfiles').disabled=!connected||busy||!profiles.length;$('importProfiles').disabled=!connected||busy;
@@ -114,10 +114,10 @@ $('stop').onclick=()=>run(async()=>{if(!recording){message('No ride is currently
 $('download').onclick=()=>run(async()=>{if(ride&&!confirm(`Transferring another ride replaces ${ride.name} in Bluefy. Save it to Files first if you need it. Continue?`))return;const expected=workflow.pending?.stopped?workflow.pending.name:null,labels=pendingTrainingLabels?.sourceFile===expected?pendingTrainingLabels:null;const r=await download('ride',expected,{trainingLabels:labels});message(`${r.name} transferred to this page. Tap Save CSV to Files to keep an iPhone copy.`);});
 function renderSdFiles(){
  $('fileList').replaceChildren();
- for(const {name,size} of sdFiles){
+ for(const {name,size,transferable,unavailableReason} of sdFiles){
   const row=document.createElement('div'),label=document.createElement('span'),button=document.createElement('button');
   row.className='file-row';label.textContent=name;const detail=document.createElement('small');detail.textContent=`${(size/1024).toFixed(1)} KB`;label.append(detail);
-  button.textContent='Transfer';button.dataset.filename=name;row.append(label,button);$('fileList').append(row);
+  button.textContent=transferable?'Transfer':'Unavailable';button.dataset.filename=name;button.dataset.unavailable=String(!transferable);if(unavailableReason){detail.textContent+=' · '+unavailableReason;button.title=unavailableReason;}row.append(label,button);$('fileList').append(row);
  }
  controls();
 }
@@ -128,6 +128,7 @@ async function loadSdFiles(){
   for(let index=start;index<start+50;index++){
    const response=await confirmed(`LIST_FILES,${index}`,['FILE,','FILES_END,']);
    const entry=parseFileReply(response,index);
+   if(sdFiles.length&&entry.total!==sdFiles[0].total)throw Error('The SD file list changed. Tap List SD card recordings to refresh.');
    if(entry.done){renderSdFiles();$('fileListStatus').textContent=`${sdFiles.length} recording${sdFiles.length===1?'':'s'} on the SD card.`;return;}
    sdFiles.push(entry);
    if(index%10===9)renderSdFiles();
@@ -141,7 +142,7 @@ $('listFiles').onclick=()=>run(async()=>{sdFiles=[];renderSdFiles();await loadSd
 $('moreFiles').onclick=()=>run(loadSdFiles);
 $('fileList').onclick=event=>{
  const name=event.target.closest('button[data-filename]')?.dataset.filename;
- if(!name||!sdFiles.some(file=>file.name===name))return;
+ if(!name||!sdFiles.some(file=>file.name===name&&file.transferable))return;
  run(async()=>{if(ride&&ride.name!==name&&!confirm(`Transferring ${name} replaces ${ride.name} in Bluefy. Save it to Files first if you need it. Continue?`))return;const labels=pendingTrainingLabels?.sourceFile===name?pendingTrainingLabels:null;const completed=await download('ride',name,{requestedFile:name,trainingLabels:labels});message(`${completed.name} transferred to this page. Tap Save CSV to Files to keep an iPhone copy.`);$('result').scrollIntoView({behavior:'smooth',block:'start'});});
 };
 $('cancelTraining').onclick=()=>{guidedCancelled=true;$('guidedInstruction').textContent='Cancelling safely…';message('Cancelling the guided ride and stopping the recording…');};
@@ -211,3 +212,4 @@ $('profileFile').onchange=e=>run(async()=>{const file=e.target.files?.[0];if(!fi
 
 rideStore().then(r=>{if(r)showRide(r);}).catch(()=>message('Allow website storage before downloading.'));renderProfile();controls();if(!navigator.bluetooth)message('For Bluetooth downloads on iPhone, open this page in Bluefy.');
 if(document.modelContext?.registerTool){try{Promise.resolve(document.modelContext.registerTool({name:'get_ride_status',description:'Read connection, selected bike and ride status.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>({connected:!!device?.gatt.connected,recording,downloading:active,selectedBike:selectedProfile?.name||null,bikeProfiles:profiles.map(p=>p.name),bytes:receiver?.offset||0,total:receiver?.size||0,savedRide:ride?{name:ride.name,samples:ride.count}:null})})).catch(()=>{});}catch{}}
+
