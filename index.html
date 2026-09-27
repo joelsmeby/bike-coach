@@ -2,13 +2,13 @@
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bike Coach · Your ride</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 <body><main>
-<header><strong>BIKE COACH · 4.9</strong><a href="analyzer.html?v=14">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 5.0</strong><a href="analyzer.html?v=14">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
- <span id="connection">Not connected</span><button id="connect">Connect Bike Coach</button>
+ <span id="connection">Not connected</span><span id="firmwareStatus" style="display:block;font-size:13px;color:#aeb9c8;margin-top:6px">Firmware: —</span><button id="connect">Connect Bike Coach</button>
  <div class="profile-heading"><h2>Your bike</h2><button id="addBike">Add a bike</button></div>
  <label class="field" for="bikeSelect">Bike profile<select id="bikeSelect" disabled><option value="">No saved bikes</option></select></label>
  <div id="profileCard" class="profile-card" hidden>
@@ -37,14 +37,22 @@
   <button id="cancelTraining" class="quiet" hidden>Cancel training ride</button>
   <div id="guidedStatus" class="calibration-result" hidden aria-live="polite"><strong id="guidedInstruction">Ready</strong><p id="guidedTime">3:00 remaining</p></div>
  </div>
- <button id="download" disabled>Download latest ride</button><button id="cancel" hidden>Cancel download</button>
+<button id="download" disabled>Transfer latest ride from bike</button><button id="cancel" hidden>Cancel transfer</button>
  <label class="option"><input type="checkbox" id="small"> Use smaller packets if a download fails</label>
  <progress id="progress" max="1" value="0"></progress><p id="status" role="status" aria-live="polite">Open this page in Bluefy on your iPhone. Disconnect other Bluetooth apps first.</p>
+</section>
+<section id="sdFiles">
+ <h2>Recordings on the bike</h2>
+ <p>Connect and stop recording, then list the files on the Artemis SD card. Select a recording to transfer it to this page. Use Save CSV or Save original afterward to put a copy in Files on your iPhone. This list requires Artemis firmware v0.2.5.</p>
+ <button id="listFiles" disabled>List SD card recordings</button>
+ <p id="fileListStatus" role="status">Connect to see recordings.</p>
+ <div id="fileList" class="file-list"></div>
+ <button id="moreFiles" hidden>Load more recordings</button>
 </section>
 <section>
  <h2>Bike profile backup</h2><p>Profiles are stored only on this phone. Export a small backup file before clearing Bluefy data or changing phones.</p>
  <div class="row"><button id="exportProfiles" disabled>Export profiles</button><button id="importProfiles" disabled>Import profiles</button></div><input id="profileFile" type="file" accept="application/json,.json" hidden>
 </section>
-<section id="result" hidden><h2>Ride ready</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV</button><button id="saveBin">Save original</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">Your recording stays on this device.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
+<section id="result" hidden><h2>Ride transferred to this page</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV to Files</button><button id="saveBin">Save original to Files</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">This is the latest recording stored in Bluefy. Save a copy to Files before transferring another ride.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=5"></script></body></html>
+</main><script type="module" src="app-v4.js?v=7"></script></body></html>
