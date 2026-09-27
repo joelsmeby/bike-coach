@@ -112,6 +112,16 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     <section class="chartwrap"><div class="charthead"><h2>Integrated Relative Angle</h2><div class="legend" id="angleLegend">integral of yaw rate — degrees</div></div><canvas id="angleChart"></canvas></section>
   </div>
 
+  <section class="card" id="jumpSection" style="margin-top:14px">
+    <div class="charthead"><h2>Jump candidates</h2><div class="legend">Low acceleration followed by landing evidence · tap a row to zoom</div></div>
+    <p id="jumpStatus" style="font-size:13px;color:var(--muted)">Open a ride to look for airborne intervals.</p>
+    <div style="overflow:auto"><table>
+      <thead><tr><th>Flight time</th><th>Air time</th><th>Minimum g</th><th>Landing peak g</th><th>Roll</th><th>Pitch</th><th>Yaw net</th><th>Yaw traveled</th><th>Evidence</th></tr></thead>
+      <tbody id="jumpTable"><tr><td colspan="9">No ride loaded.</td></tr></tbody>
+    </table></div>
+    <p style="font-size:12px;color:var(--muted)">Rotation is integrated from the gyro during candidate flight. Yaw net is signed rotation at landing; yaw traveled sums the absolute rotation, including a whip and return. With a calibrated bike profile, roll, pitch and yaw are bike-relative; otherwise they are raw sensor axes. Air time alone cannot establish jump height or distance, and gyro drift makes these angles approximate. Review each candidate against the plots or video.</p>
+  </section>
+
   <section class="card" style="margin-top:14px">
     <div class="charthead"><h2>Automatically detected movement</h2><div class="legend">Initial model trained from the first controlled ride</div></div>
     <p id="activityStatus" style="font-size:13px;color:var(--muted)">Open a ride to detect movement sections.</p>
@@ -167,6 +177,7 @@ import {classifyActivityWindow,activityLabel} from "./activity-detector.mjs?v=1"
 import {MOVEMENT_LABELS,cleanRideLabels,compareRideLabels,labelFile} from "./ride-labels.mjs?v=1";
 import {trainingLabelsFromCsv} from "./guided-training.mjs?v=1";
 import {buildTrainingPackage,trainingPackageName} from "./training-package.mjs?v=1";
+import {analyzeJumps} from "./jump-analysis.mjs?v=1";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
@@ -294,9 +305,11 @@ function loadText(text,name,attached=null,attachedLabels=null){
     renderSegmentTable();
     renderActivityDetection();
     loadRideLabels(attachedLabels||trainingLabelsFromCsv(text));
+    renderJumps();
   }else{
     setStatus("No valid Artemis rows found");
     renderActivityDetection();
+    renderJumps();
   }
 }
 
@@ -308,7 +321,21 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];loadedRideText="";angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels()}
+function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];loadedRideText="";angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels();renderJumps()}
+function renderJumps(){
+  const table=$("jumpTable"), status=$("jumpStatus");
+  if(samples.length<3){status.textContent="Open a ride to look for airborne intervals.";table.innerHTML='<tr><td colspan="9">No ride loaded.</td></tr>';return;}
+  const jumps=analyzeJumps(samples,{calibrated:!!rideCalibration?.ok});
+  table.innerHTML=jumps.map(j=>`<tr data-jump-start="${j.start}" data-jump-end="${j.end}" style="cursor:pointer"><td>${j.start.toFixed(2)}–${j.end.toFixed(2)} s</td><td>${j.duration.toFixed(2)} s</td><td>${j.minG.toFixed(2)}</td><td>${j.landingG.toFixed(2)}</td><td>${j.rotation.roll.toFixed(1)}°</td><td>${j.rotation.pitch.toFixed(1)}°</td><td>${j.rotation.yaw.toFixed(1)}°</td><td>${j.rotationTravel.yaw.toFixed(1)}°</td><td>${j.confidence}</td></tr>`).join("")||'<tr><td colspan="9">No jump candidates found. This does not rule out jumps in the ride.</td></tr>';
+  status.textContent=`${jumps.length} candidate${jumps.length===1?'':'s'} found. Low-g threshold: 0.45 g, minimum air time: 0.12 s. Impacts and rough trail may create false positives.`;
+}
+$("jumpTable").onclick=event=>{
+  const row=event.target.closest('tr[data-jump-start]');if(!row||!samples.length)return;
+  const first=samples[0].ts,last=samples.at(-1).ts;
+  viewStartTs=Math.max(first,first+Number(row.dataset.jumpStart)-2);
+  viewEndTs=Math.min(last,first+Number(row.dataset.jumpEnd)+2);
+  $("jumpSection").scrollIntoView({block:'nearest'});
+};
 function saveCsv(){
   const body=HEADER.join(",")+"\n"+liveRows.join("\n")+"\n";
   const blob=new Blob([body],{type:"text/csv"});const a=document.createElement("a");
