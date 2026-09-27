@@ -13,7 +13,7 @@ export function parseFileReply(reply, requestedIndex) {
     if (fields.length !== 2 || !uint(fields[1]) || Number(fields[1]) !== requestedIndex) invalid('unexpected list ending');
     return {done: true, total: Number(fields[1])};
   }
-  if (fields[0] !== 'FILE' || fields.length !== 5) invalid('expected FILE,index,total,name,size');
+  if (fields[0] !== 'FILE' || (fields.length !== 5 && fields.length !== 6)) invalid('expected FILE,index,total,name,size[,modified]');
   const index = Number(fields[1]), total = Number(fields[2]), name = fields[3], size = Number(fields[4]);
   if (!uint(fields[1]) || index !== requestedIndex) invalid('wrong file index');
   if (!uint(fields[2]) || total <= index || total > 10000) invalid('invalid file count');
@@ -23,7 +23,8 @@ export function parseFileReply(reply, requestedIndex) {
   // Keep these entries visible while retaining strict download safeguards.
   const unavailableReason = !SAFE_NAME.test(name) ? 'Filename not supported for transfer' :
     size > MAX_TRANSFER_BYTES ? 'Above the 64 MB transfer limit' : size === 0 ? 'Empty recording' : '';
-  return {done: false, index, total, name, size, transferable: !unavailableReason, unavailableReason};
+  const modified = parseModifiedDate(fields[5]);
+  return {done: false, index, total, name, size, modified, transferable: !unavailableReason, unavailableReason};
 }
 export function fileRequest(name, packetLimit) {
   if (!SAFE_NAME.test(name)) throw Error('Invalid recording filename.');
@@ -80,3 +81,19 @@ export class LegacyReceiver {
   flush() {return null;}
 }
 
+
+
+// FAT timestamps represent the board clock, without a timezone. Never shift them
+// to the phone timezone or substitute the download time for a missing SD date.
+export function parseModifiedDate(value) {
+  if (!value || value === '-') return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [year,month,day,hour,minute,second] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(year,month-1,day,hour,minute,second));
+  if (year < 1980 || year > 2107 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month-1 || date.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) return null;
+  return value;
+}
+export function modifiedDateLabel(value) {
+  return value ? 'Modified: ' + value.replace('T',' ') + ' (board clock)' : 'Modified: unavailable';
+}

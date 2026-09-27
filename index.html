@@ -4,7 +4,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=7">
 <body><main>
-<header><strong>BIKE COACH · 5.0.1</strong><a href="analyzer.html?v=14">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 5.0.2</strong><a href="analyzer.html?v=14">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
@@ -46,6 +46,7 @@
  <p>Connect and stop recording, then list the files on the Artemis SD card. Select a recording to transfer it to this page. Use Save CSV or Save original afterward to put a copy in Files on your iPhone. This list requires Artemis firmware v0.2.5.</p>
  <button id="listFiles" disabled>List SD card recordings</button>
  <p id="fileListStatus" role="status">Connect to see recordings.</p>
+ <p>Modified dates use the board clock. Older files may have no reliable saved date.</p>
  <div id="fileList" class="file-list"></div>
  <button id="moreFiles" hidden>Load more recordings</button>
 </section>
@@ -55,5 +56,6 @@
 </section>
 <section id="result" hidden><h2>Ride transferred to this page</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV to Files</button><button id="saveBin">Save original to Files</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">This is the latest recording stored in Bluefy. Save a copy to Files before transferring another ride.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=8"></script></body></html>
+</main><script type="module" src="app-v4.js?v=9"></script></body></html>
+
 
