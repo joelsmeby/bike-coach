@@ -112,6 +112,12 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     <section class="chartwrap"><div class="charthead"><h2>Integrated Relative Angle</h2><div class="legend" id="angleLegend">integral of yaw rate — degrees</div></div><canvas id="angleChart"></canvas></section>
   </div>
 
+  <section class="card" style="margin-top:14px">
+    <div class="charthead"><h2>Ride route &amp; jump locations</h2><label class="filebtn">Import matching GPS<input type="file" id="gpsImport" accept=".json,application/json"></label></div>
+    <p id="gpsImportStatus" role="status" class="footer">Save CSV includes GPS. For an original recording, import its matching GPS export here.</p>
+    <div id="gpsRoute"><p class="footer">No phone GPS attached to this ride.</p></div>
+  </section>
+
   <section class="card" id="jumpSection" style="margin-top:14px">
     <div class="charthead"><h2>Jump candidates</h2><div class="legend">Low acceleration followed by landing evidence · tap a row to zoom</div></div>
     <p id="jumpStatus" style="font-size:13px;color:var(--muted)">Open a ride to look for airborne intervals.</p>
@@ -171,12 +177,15 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
 </main>
 
 <script type="module">
-import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=9";
+import {validCalibration,csvCalibration,applyCalibration} from "./calibration.mjs?v=10";
 import activityModel from "./activity-model.mjs?v=1";
 import {classifyActivityWindow,activityLabel} from "./activity-detector.mjs?v=1";
 import {MOVEMENT_LABELS,cleanRideLabels,compareRideLabels,labelFile} from "./ride-labels.mjs?v=1";
 import {trainingLabelsFromCsv} from "./guided-training.mjs?v=1";
 import {buildTrainingPackage,trainingPackageName} from "./training-package.mjs?v=1";
+import {gpsFromCsv,bindGps,withGps} from './gps.mjs?v=1';
+import {renderGpsRoute} from './gps-route.mjs?v=1';
+let rideGps=null;
 import {analyzeJumps} from "./jump-analysis.mjs?v=1";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
@@ -286,13 +295,14 @@ async function disconnectSerial(){
   try{if(port)await port.close()}catch(e){}
   reader=null;port=null;$("connectBtn").disabled=false;$("disconnectBtn").disabled=true;setStatus("Disconnected");
 }
-function loadText(text,name,attached=null,attachedLabels=null){
+function loadText(text,name,attached=null,attachedLabels=null,attachedGps=null){
+  rideGps=bindGps(text,attachedGps)||gpsFromCsv(text);
   rideCalibration=null;
   samples=[];liveRows=[];loadedRideText=String(text||"");angleOffset=0;viewStartTs=null;viewEndTs=null;$("saveBtn").disabled=true;
   const lines=String(text||"").split(/\r?\n/);
   let rejected=0;
   for(const line of lines){
-    if(!line.trim() || line.trim().startsWith("rtcDate") || line.trim().startsWith("# BikeCoachCalibration=") || line.trim().startsWith("# BikeCoachTraining=")) continue;
+    if(!line.trim() || line.trim().startsWith("rtcDate") || line.trim().startsWith("# BikeCoachCalibration=") || line.trim().startsWith("#")) continue;
     const s=parseRow(line);
     if(s)addSample(s,false); else rejected++;
   }
@@ -321,8 +331,10 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];loadedRideText="";angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels();renderJumps()}
+function clearData(){rideGps=null;renderGpsRoute($("gpsRoute"),null,[]);rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];loadedRideText="";angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels();renderJumps()}
 function renderJumps(){
+  const routeJumps=analyzeJumps(samples,{calibrated:!!rideCalibration?.ok});
+  renderGpsRoute($("gpsRoute"),rideGps,routeJumps,Number(samples[0]?.elapsed_ms)||0,jump=>{if(!samples.length)return;viewStartTs=samples[0].ts+jump.start-2;viewEndTs=samples[0].ts+jump.end+2;$("accChart").scrollIntoView({behavior:"smooth",block:"center"});});
   const table=$("jumpTable"), status=$("jumpStatus");
   if(samples.length<3){status.textContent="Open a ride to look for airborne intervals.";table.innerHTML='<tr><td colspan="9">No ride loaded.</td></tr>';return;}
   const jumps=analyzeJumps(samples,{calibrated:!!rideCalibration?.ok});
@@ -454,7 +466,7 @@ async function exportTrainingPackage(){
   $("labelComparison").textContent="Building the training package…";
   try{
     const csv=loadedRideText||HEADER.join(",")+"\n"+samples.map(sample=>HEADER.map(key=>sample[key]??"").join(",")).join("\n")+"\n";
-    const labels=labelFile(source,rideDuration(),correctedRideLabels),training=await buildTrainingPackage({sourceFile:source,csv,calibration:rideCalibration,labels,durationSeconds:rideDuration(),sampleCount:samples.length});
+    const labels=labelFile(source,rideDuration(),correctedRideLabels),training=await buildTrainingPackage({sourceFile:source,csv:withGps(csv,rideGps),calibration:rideCalibration,labels,durationSeconds:rideDuration(),sampleCount:samples.length});
     const name=trainingPackageName(source),text=JSON.stringify(training)+"\n";
     await deliverExport(new Blob([text],{type:"application/json"}),name,"Bike Coach training package");
   }catch(error){$("labelComparison").textContent=`Could not build the training package: ${error.message}`;}
@@ -683,6 +695,12 @@ Object.values(canvases).forEach(c=>{
 window.addEventListener("mousemove",movePan);
 window.addEventListener("mouseup",endPan);
 
+
+$('gpsImport').onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;
+ try{if(file.size>40000000)throw Error('GPS file is too large.');const gps=bindGps(loadedRideText,JSON.parse(await file.text()));if(!gps)throw Error('This GPS file does not match the loaded ride, or is invalid.');rideGps=gps;loadedRideText=withGps(loadedRideText,gps);renderJumps();}catch(error){$('gpsImportStatus').textContent=error.message;}finally{event.target.value='';}
+};
+
 refreshFrameLabels();
 window.addEventListener("beforeunload",()=>{if(port)disconnectSerial()});
 requestAnimationFrame(update);
@@ -692,7 +710,7 @@ requestAnimationFrame(update);
 import {rideStore} from './storage.js?v=3';
 if(!navigator.serial){for(const id of ['baud','connectBtn','disconnectBtn'])document.getElementById(id).hidden=true;}
 document.getElementById('showLabels').checked=false;
-if(new URLSearchParams(location.search).has('latest')){try{const r=await rideStore();if(r){loadText(r.csv,r.name,r.calibration,r.trainingLabels);}else setStatus('No downloaded ride yet. Return to Download a ride.');}catch(e){setStatus('Could not open saved ride: '+e.message);}}
+if(new URLSearchParams(location.search).has('latest')){try{const r=await rideStore();if(r){loadText(r.csv,r.name,r.calibration,r.trainingLabels,r.gps);}else setStatus('No downloaded ride yet. Return to Download a ride.');}catch(e){setStatus('Could not open saved ride: '+e.message);}}
 const nav=document.createElement('div');nav.className='smallrow';nav.style.margin='12px 0';
 for(const [label,factor] of [['Zoom in',0.5],['Zoom out',2]]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{if(samples.length<2)return;const d=visibleData(),first=samples[0].ts,last=samples.at(-1).ts,span=Math.min(last-first,Math.max(.2,(d.at(-1).ts-d[0].ts)*factor)),mid=(d.at(-1).ts+d[0].ts)/2;viewStartTs=Math.max(first,Math.min(last-span,mid-span/2));viewEndTs=viewStartTs+span;};nav.append(b);}
 document.querySelector('.row').before(nav);
@@ -700,3 +718,4 @@ for(const c of Object.values(canvases)){c.addEventListener('touchstart',e=>{if(e
 </script>
 </body>
 </html>
+

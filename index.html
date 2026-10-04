@@ -4,7 +4,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=7">
 <body><main>
-<header><strong>BIKE COACH · 5.0.2</strong><a href="analyzer.html?v=14">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 5.1</strong><a href="analyzer.html?v=15">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
@@ -26,6 +26,12 @@
  </div>
  <div class="calibration-result" id="calibrationResult"><strong id="calibrationStatus" role="status" aria-live="polite">Connect to choose a bike</strong><p id="calibrationDetails">Saved profiles stay on this phone.</p></div>
  <h2>Record your ride</h2>
+ <div class="guided-card">
+  <label class="option"><input type="checkbox" id="gpsEnabled"> Record phone GPS with this ride</label>
+  <p>Carry this phone with the rider. Keep Bluefy open and the screen on; locking it or switching apps may pause GPS. Location stays on this phone unless you export it.</p>
+  <p id="gpsStatus" role="status" aria-live="polite">Phone GPS is off.</p>
+  <button id="saveGps" class="quiet" hidden>Save GPS to Files</button>
+ </div>
  <div class="row"><button id="start" disabled>Start ride</button><button id="stop" disabled>Stop recording</button></div>
  <p id="startHelp">Connect and choose a bike to start.</p>
  <div class="guided-card">
@@ -56,6 +62,7 @@
 </section>
 <section id="result" hidden><h2>Ride transferred to this page</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV to Files</button><button id="saveBin">Save original to Files</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">This is the latest recording stored in Bluefy. Save a copy to Files before transferring another ride.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=9"></script></body></html>
+</main><script type="module" src="app-v4.js?v=10"></script></body></html>
+
 
 
