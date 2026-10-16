@@ -1,6 +1,6 @@
 # SD recording browser protocol
 
-The saved Artemis firmware source is v0.2.4, which writes CSV recordings and sends six-byte sequence/offset headers in BLE notifications. The newer webpage also has a separate BCB1 binary and ACK/CRC32 path. The webpage selects the legacy receiver for `FW=0.2.4`, `FW=0.2.5` and `FW=0.2.6`; other versions retain the BCB1 receiver. The v0.2.6 sketch extends the saved CSV source.
+The saved Artemis firmware source is v0.2.4, which writes CSV recordings and sends six-byte sequence/offset headers in BLE notifications. The newer webpage also has a separate BCB1 binary and ACK/CRC32 path. The webpage selects the legacy receiver for `FW=0.2.4` through `FW=0.2.7`; other versions retain the BCB1 receiver. The v0.2.7 sketch extends the saved CSV source and starts idle until an explicit recording command.
 
 Add two commands to the firmware currently installed on the board:
 
@@ -14,4 +14,4 @@ The page loads recordings in batches of 50, and the file parser allows safe name
 
 The downloaded recording remains on the board's SD card. `.BIN` recordings use the existing BCB1 decoder; `.TXT` and `.CSV` files must contain the Artemis sensor CSV header. The page holds only one transferred ride in Bluefy at a time; the user must explicitly select **Save CSV to Files** or **Save original to Files** before transferring a different ride. iOS share-sheet support depends on the browser; the page falls back to a browser download and reports that distinction.
 
-The legacy transfer checks every chunk's sequence number and byte offset, the total byte count, and the final chunk count. The v0.2.x transport has no CRC or retransmission; missing chunks fail the transfer, which the user can retry. v0.2.5 was compiled and uploaded by the user; v0.2.6 and the new webpage changes still require hardware testing, including actual selected-file transfer under the phone's negotiated packet size.
+The legacy transfer checks every chunk's sequence number and byte offset, the total byte count, and the final chunk count. The v0.2.x transport has no CRC or retransmission; missing chunks fail the transfer, which the user can retry. v0.2.5 was compiled and uploaded by the user; v0.2.7 and the new webpage changes still require hardware testing, including actual selected-file transfer under the phone's negotiated packet size.
