@@ -1,70 +1,58 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bike Coach · Your ride</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=7">
-<style>header{margin-bottom:28px}h1{font-size:38px}details{margin:16px 0;border:1px solid #303743;border-radius:12px;padding:16px;background:#171a21}summary{cursor:pointer;font-weight:650;min-height:28px}details section{padding:0;border:0}#start,#stop{background:#4ade80;color:#072212;border-color:#4ade80}#calibrationResult{margin-top:14px;font-size:14px}#calibrationResult strong{letter-spacing:0;font-size:14px}#profileCard strong{letter-spacing:0}#result{padding:18px}#gpsStatus{font-size:13px}#progress{margin-top:14px}#savedRides{margin-top:12px}main{padding:20px 18px 32px}header{margin-bottom:22px}h1{font-size:34px;margin-bottom:10px}h1+p{font-size:14px}section{padding:16px;margin:16px 0}.profile-heading{margin-top:18px}.profile-heading h2{font-size:18px}.guided-card{padding:12px;margin:14px 0}.option{margin-top:0}.guided-card p{margin:8px 0;font-size:13px}#calibrationResult{padding:8px;background:none;border:0}#calibrationDetails{font-size:12px;margin:4px 0}#startHelp{font-size:12px}#status{font-size:13px}#batteryStatus[data-level="low"]{color:#fbbf24}#batteryStatus[data-level="critical"]{color:#f87171;font-weight:700}</style></head><body><main>
-<header><strong>BIKE COACH · 5.3</strong><a href="analyzer.html?v=16">Analysis ↗</a></header>
-<h1>Ready to ride.</h1>
-<p>Finish your ride and open its analysis in one tap.</p>
+<body><main>
+<header><strong>BIKE COACH · 5.0</strong><a href="analyzer.html?v=14">Analyzer ↗</a></header>
+<h1>Choose your bike.<br>Then ride.</h1>
+<p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
- <span id="connection">Not connected</span><button id="connect">Connect Bike Coach</button>
- <div class="profile-heading"><h2>Your bike</h2></div>
- <label class="field" for="bikeSelect">Bike profile<select id="bikeSelect" disabled=""><option value="">No saved bikes</option></select></label>
- 
- <div id="setupPanel" class="setup-panel" hidden="">
-  <h3 id="setupTitle">Add a bike</h3>
-  <label class="field" for="bikeName">Bike name<input id="bikeName" maxlength="40" autocomplete="off" placeholder="Mountain Bike"></label>
-  <p>Strap the device with the USB end pointing toward the front wheel and the SD-card side facing down. Hold the bike upright and completely still on reasonably level ground.</p>
-  <button id="beginSetup">Set up this bike</button><button id="useExistingSetup" class="quiet" hidden="">Use existing calibration</button><button id="cancelSetup" class="quiet">Cancel</button>
- </div>
- <div id="calibrationResult"><strong id="calibrationStatus" role="status" aria-live="polite">Connect to choose a bike</strong><p id="calibrationDetails">Saved profiles stay on this phone.</p></div>
- 
- <div class="guided-card">
-  <label class="option"><input type="checkbox" id="gpsEnabled"> Record phone GPS with this ride</label>
-  <p>Carry your phone. Keep Bluefy open and the screen awake.</p>
-  <p id="gpsStatus" role="status" aria-live="polite">Phone GPS is off.</p>
-  
- </div>
- <div class="row"><button id="start" disabled="">Start ride</button><button id="stop" disabled="">Finish ride &amp; analyze</button></div>
- <p id="startHelp">Connect and choose a bike to start.</p>
- 
-<button id="download" disabled="">Download latest &amp; analyze</button><button id="cancel" hidden="">Cancel transfer</button>
- 
- <progress id="progress" max="1" value="0"></progress><p id="status" role="status" aria-live="polite">Open this page in Bluefy on your iPhone. Disconnect other Bluetooth apps first.</p>
-</section>
-
-
-<details id="olderRecordings"><summary>Older recordings</summary><div><h3>Saved on this phone</h3><button id="listSaved">Show saved rides</button><div id="savedRides" class="file-list"></div></div><section id="sdFiles">
- <h2>On the bike</h2>
- <p>Choose a recording to download and open its analysis.</p>
- <button id="listFiles" disabled="">List SD card recordings</button>
- <p id="fileListStatus" role="status">Connect to see recordings.</p>
- <p>Modified dates use the board clock. Older files may have no reliable saved date.</p>
- <div id="fileList" class="file-list"></div>
- <button id="moreFiles" hidden="">Load more recordings</button>
-</section></details><section id="result" hidden=""><h2>Latest saved ride</h2><p id="summary"></p><button id="analyze">Open analysis</button><button id="saveCsv">Save to Files</button><p id="saved">This is the latest recording stored in Bluefy. Save a copy to Files before transferring another ride.</p></section>
-
-<details id="advanced"><summary>Settings &amp; advanced</summary><details id="bikeSettings"><summary>Bike setup &amp; profiles</summary><button id="addBike">Add a bike</button><div id="profileCard" class="profile-card" hidden="">
+ <span id="connection">Not connected</span><span id="firmwareStatus" style="display:block;font-size:13px;color:#aeb9c8;margin-top:6px">Firmware: —</span><button id="connect">Connect Bike Coach</button>
+ <div class="profile-heading"><h2>Your bike</h2><button id="addBike">Add a bike</button></div>
+ <label class="field" for="bikeSelect">Bike profile<select id="bikeSelect" disabled><option value="">No saved bikes</option></select></label>
+ <div id="profileCard" class="profile-card" hidden>
   <strong id="profileName"></strong>
   <dl class="profile-facts"><div><dt>Mounting pitch</dt><dd id="profilePitch">—</dd></div><div><dt>Mounting roll</dt><dd id="profileRoll">—</dd></div><div><dt>Updated</dt><dd id="profileUpdated">—</dd></div></dl>
   <p id="profileQuality"></p>
   <div class="row"><button id="updateBike">Update mounting</button><button id="renameBike">Rename</button></div>
   <button id="deleteBike" class="quiet">Delete this bike</button>
- </div><section>
- <h2>Bike profile backup</h2><p>Profiles are stored only on this phone. Export a small backup file before clearing Bluefy data or changing phones.</p>
- <div class="row"><button id="exportProfiles" disabled="">Export profiles</button><button id="importProfiles" disabled="">Import profiles</button></div><input id="profileFile" type="file" accept="application/json,.json" hidden="">
-</section></details><details id="trainingSettings"><summary>Guided training</summary><div class="guided-card">
+ </div>
+ <div id="setupPanel" class="setup-panel" hidden>
+  <h3 id="setupTitle">Add a bike</h3>
+  <label class="field" for="bikeName">Bike name<input id="bikeName" maxlength="40" autocomplete="off" placeholder="Mountain Bike"></label>
+  <p>Strap the device with the USB end pointing toward the front wheel and the SD-card side facing down. Hold the bike upright and completely still on reasonably level ground.</p>
+  <button id="beginSetup">Set up this bike</button><button id="useExistingSetup" class="quiet" hidden>Use existing calibration</button><button id="cancelSetup" class="quiet">Cancel</button>
+ </div>
+ <div class="calibration-result" id="calibrationResult"><strong id="calibrationStatus" role="status" aria-live="polite">Connect to choose a bike</strong><p id="calibrationDetails">Saved profiles stay on this phone.</p></div>
+ <h2>Record your ride</h2>
+ <div class="row"><button id="start" disabled>Start ride</button><button id="stop" disabled>Stop recording</button></div>
+ <p id="startHelp">Connect and choose a bike to start.</p>
+ <div class="guided-card">
   <h3>Guided three-minute training ride</h3>
   <p>The app records exact labels while spoken prompts guide you through stationary, straight riding, acceleration, braking, turns and walking.</p>
   <button id="testAudio" class="quiet">Test guided audio</button>
   <p>Test the audio before riding and turn up your phone volume. Starting the guided ride also activates audio.</p>
-  <button id="guidedTraining" disabled="">Start guided training ride</button>
-  <button id="cancelTraining" class="quiet" hidden="">Cancel training ride</button>
-  <div id="guidedStatus" class="calibration-result" hidden="" aria-live="polite"><strong id="guidedInstruction">Ready</strong><p id="guidedTime">3:00 remaining</p></div>
- </div></details><details id="exportTools"><summary>Export &amp; troubleshooting</summary><button id="saveGps" class="quiet" hidden="">Save GPS to Files</button><label class="option"><input type="checkbox" id="small"> Use smaller packets if a download fails</label><span id="firmwareStatus" style="display:block;font-size:13px;color:#aeb9c8;margin-top:6px">Firmware: —</span><button id="saveBin">Save original to Files</button><button id="saveTrainingLabels" hidden="">Save training labels</button><button id="applyCalibration" hidden="">Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></details></details><footer>Keep Bluefy open and the bike powered on until the transfer finishes. Saved rides stay in this browser; use Save to Files for a backup.</footer></main><script src="power-ui.js?v=1"></script><script type="module" src="app-v4.js?v=11"></script>
-
-
-
-
-</body></html>
+  <button id="guidedTraining" disabled>Start guided training ride</button>
+  <button id="cancelTraining" class="quiet" hidden>Cancel training ride</button>
+  <div id="guidedStatus" class="calibration-result" hidden aria-live="polite"><strong id="guidedInstruction">Ready</strong><p id="guidedTime">3:00 remaining</p></div>
+ </div>
+<button id="download" disabled>Transfer latest ride from bike</button><button id="cancel" hidden>Cancel transfer</button>
+ <label class="option"><input type="checkbox" id="small"> Use smaller packets if a download fails</label>
+ <progress id="progress" max="1" value="0"></progress><p id="status" role="status" aria-live="polite">Open this page in Bluefy on your iPhone. Disconnect other Bluetooth apps first.</p>
+</section>
+<section id="sdFiles">
+ <h2>Recordings on the bike</h2>
+ <p>Connect and stop recording, then list the files on the Artemis SD card. Select a recording to transfer it to this page. Use Save CSV or Save original afterward to put a copy in Files on your iPhone. This list requires Artemis firmware v0.2.5.</p>
+ <button id="listFiles" disabled>List SD card recordings</button>
+ <p id="fileListStatus" role="status">Connect to see recordings.</p>
+ <div id="fileList" class="file-list"></div>
+ <button id="moreFiles" hidden>Load more recordings</button>
+</section>
+<section>
+ <h2>Bike profile backup</h2><p>Profiles are stored only on this phone. Export a small backup file before clearing Bluefy data or changing phones.</p>
+ <div class="row"><button id="exportProfiles" disabled>Export profiles</button><button id="importProfiles" disabled>Import profiles</button></div><input id="profileFile" type="file" accept="application/json,.json" hidden>
+</section>
+<section id="result" hidden><h2>Ride transferred to this page</h2><p id="summary"></p><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV to Files</button><button id="saveBin">Save original to Files</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">This is the latest recording stored in Bluefy. Save a copy to Files before transferring another ride.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
+<footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
+</main><script type="module" src="app-v4.js?v=7"></script></body></html>

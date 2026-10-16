@@ -84,9 +84,9 @@ export function useLevelReference(c,reference){
   const current=usesDeviceAxes(c);
   return {...structuredClone(c),version:current?4:3,...(current?{deviceAxesVersion:DEVICE_AXES_VERSION}:{}),levelReferenced:true,...frame,levelFrame,measuredUp:[...measuredUp]};
 }
-export function samplesFromCsv(csv){return csv.trim().split(/\r?\n/).filter(line=>line.trim()&&!line.trim().startsWith('#')&&!line.trim().startsWith('rtcDate')).map(line=>{
+export function samplesFromCsv(csv){return csv.trim().split(/\r?\n/).slice(1).map(line=>{
   const p=line.split(',').map(Number);return {aX:p[2],aY:p[3],aZ:p[4],gX:p[5],gY:p[6],gZ:p[7],ts:p[13]/1000,elapsed_ms:p[13]};
-}).filter(row=>[row.aX,row.aY,row.aZ,row.gX,row.gY,row.gZ].every(Number.isFinite));}
+});}
 export const CALIBRATION_PREFIX='# BikeCoachCalibration=';
 export function calibratedCsv(csv,c){return validCalibration(c)?CALIBRATION_PREFIX+JSON.stringify(c)+'\r\n'+csv:csv;}
 export function csvCalibration(csv){const line=csv.split(/\r?\n/).find(x=>x.startsWith(CALIBRATION_PREFIX));if(!line)return null;try{const c=JSON.parse(line.slice(CALIBRATION_PREFIX.length));return validCalibration(c)?c:null;}catch{return null;}}
@@ -113,4 +113,3 @@ export function refineRideGyroBias(csv,c){
   }
   return {...structuredClone(c),rideBiasAdjusted:false,rideBiasSamples:0};
 }
-
