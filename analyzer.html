@@ -178,6 +178,7 @@ import {MOVEMENT_LABELS,cleanRideLabels,compareRideLabels,labelFile} from "./rid
 import {trainingLabelsFromCsv} from "./guided-training.mjs?v=1";
 import {buildTrainingPackage,trainingPackageName} from "./training-package.mjs?v=1";
 import {analyzeJumps} from "./jump-analysis.mjs?v=1";
+import {includeZero,tickDecimals} from "./chart-scale.mjs?v=1";
 let rideCalibration=null;
 const HEADER = ["rtcDate","rtcTime","aX","aY","aZ","gX","gY","gZ","mX","mY","mZ","imu_degC","output_Hz"];
 function addBikeFrame(s){return applyCalibration(s,rideCalibration);}
@@ -524,6 +525,7 @@ function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
   const scaleData=minMaxOverride?data:decimateForDisplay(samples,4000);
   for(const ser of series)for(const p of scaleData){const v=ser.get(p);if(Number.isFinite(v)){ymin=Math.min(ymin,v);ymax=Math.max(ymax,v)}}
   if(minMaxOverride){ymin=minMaxOverride[0];ymax=minMaxOverride[1]}
+  [ymin,ymax]=includeZero(ymin,ymax);
   if(!Number.isFinite(ymin)||!Number.isFinite(ymax)){ymin=-1;ymax=1}
   if(ymin===ymax){ymin-=1;ymax+=1}
   const range=ymax-ymin,step=niceStep(range*1.16,6);
@@ -531,7 +533,7 @@ function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
   ymax=Math.ceil((ymax+range*.08)/step)*step;
   const ty=v=>pad.t+(ymax-v)/(ymax-ymin)*ph;
   ctx.strokeStyle="#2b3240";ctx.lineWidth=1*dpr;ctx.fillStyle="#8c97a6";ctx.font=`${11*dpr}px system-ui`;ctx.textAlign="right";
-  const decimals=step>=1?0:Math.min(3,Math.max(1,Math.ceil(-Math.log10(step))));
+  const decimals=tickDecimals(step);
   for(let val=Math.ceil(ymin/step)*step;val<=ymax+step*.001;val+=step){
     const clean=Math.abs(val)<step*1e-8?0:val,y=ty(clean);
     ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();

@@ -5,8 +5,9 @@ import {calibrate,samplesFromCsv,validCalibration,calibratedCsv,setLevelReferenc
 import {createProfile,updateProfile,validProfile,exportProfiles as profileBackup,importProfiles as readProfileBackup} from './profiles.mjs?v=2';
 import {RideWorkflow} from './ride-workflow.mjs';
 import {GUIDED_PROTOCOL,GUIDED_DURATION_SECONDS,guidedTrainingLabels,trainingCsv} from './guided-training.mjs?v=1';
-import {parseFileReply,fileRequest,parseTextRecording,LegacyReceiver} from './file-browser.mjs?v=3';
+import {parseFileReply,fileRequest,parseTextRecording,LegacyReceiver} from './file-browser.mjs?v=4';
 import {completeStatusReply,powerDescription} from './device-status.mjs?v=1';
+import {trailFilename,renameRecording,parseRenameReply,commandParts} from './recording-names.mjs?v=1';
 
 const $=id=>document.getElementById(id),uuid=n=>`7b7e${n}-6f1d-4f35-9f55-42494b45434f`,enc=new TextEncoder();
 const workflow=new RideWorkflow();
@@ -16,6 +17,7 @@ let profiles=[],selectedProfile=null,legacyCalibration=null,setupTargetId=null,o
 let guidedActive=false,guidedCancelled=false,pendingTrainingLabels=null;
 let sdFiles=[];
 let firmwareMode='framed';
+let supportsFileNames=false,renameTarget=null;
 let powerChar=null,powerReading=false;
 let audioContext=null;
 const message=s=>$('status').textContent=s,text=v=>new TextDecoder().decode(v);
@@ -49,9 +51,13 @@ function controls(){
  $('listFiles').disabled=!connected||busy||recording;
  $('moreFiles').disabled=!connected||busy||recording;
  for(const button of $('fileList').querySelectorAll('button'))button.disabled=!connected||busy||recording;
+ for(const button of $('fileList').querySelectorAll('[data-rename]'))button.disabled=!connected||busy||recording||!supportsFileNames;
  $('guidedTraining').disabled=!connected||busy||recording||settingUp||!selectedProfile||!!workflow.pending;$('cancelTraining').hidden=!guidedActive;
  $('testAudio').disabled=busy;$('small').disabled=busy;$('cancel').hidden=!active;$('analyze').disabled=busy;$('applyCalibration').hidden=!ride||validCalibration(ride.calibration)||!selectedProfile;$('applyCalibration').disabled=busy;
  $('exportProfiles').disabled=!connected||busy||!profiles.length;$('importProfiles').disabled=!connected||busy;
+ $('renameRide').disabled=busy||!ride;
+ $('recordingStatus').textContent=connected?(recording?'Recording: ON · blue light on':'Recording: OFF · blue light off'):'Recording: unknown · connect to check';
+ $('recordingStatus').classList.toggle('recording',connected&&recording);
  $('startHelp').textContent=!connected?'Connect Bike Coach first.':!selectedProfile?'Add or choose a bike to enable Start ride.':workflow.pending?'Download the completed ride before starting another.':`Ready to record with ${selectedProfile.name}.`;
 }
 function openSetup(profile=null){setupTargetId=profile?.id||null;$('setupTitle').textContent=profile?`Update ${profile.name}`:'Add a bike';$('bikeName').value=profile?.name||'';$('bikeName').disabled=!!profile;$('useExistingSetup').hidden=!!profile||!usesDeviceAxes(legacyCalibration);$('setupPanel').hidden=false;controls();$('setupPanel').scrollIntoView?.({behavior:'smooth',block:'start'});}
@@ -60,7 +66,13 @@ function closeSetup(){$('setupPanel').hidden=true;setupTargetId=null;controls();
 function write(s){const action=async()=>{if(!device?.gatt.connected||!command)throw Error('Bike Coach disconnected.');const b=enc.encode(s);if(command.properties.writeWithoutResponse&&command.writeValueWithoutResponse)await command.writeValueWithoutResponse(b);else if(command.writeValueWithResponse)await command.writeValueWithResponse(b);else await command.writeValue(b);};const p=tail.then(action);tail=p.catch(()=>{});return p;}
 function rejectStatus(e){if(statusWait){const w=statusWait;statusWait=null;clearTimeout(w.timer);w.reject(e);}}
 function queuedRead(characteristic){const p=tail.then(()=>characteristic.readValue());tail=p.catch(()=>{});return p;}
-async function confirmed(cmd,prefixes){const response=new Promise((resolve,reject)=>{const timer=setTimeout(()=>{statusWait=null;reject(Error('Board did not confirm the command. Reconnect and try again.'));},5000);statusWait={resolve,reject,timer,prefixes};});response.catch(()=>{});try{await write(cmd);const notification=await response;return await completeStatusReply(notification,()=>queuedRead(statusChar));}catch(e){rejectStatus(e);throw e;}}
+async function prepareCommand(cmd){
+ if(!supportsFileNames)return cmd;
+ const parts=commandParts(cmd);
+ for(const part of parts.slice(0,-1))await confirmed(part,['CMD_READY']);
+ return parts.at(-1);
+}
+async function confirmed(cmd,prefixes){cmd=await prepareCommand(cmd);const response=new Promise((resolve,reject)=>{const timer=setTimeout(()=>{statusWait=null;reject(Error('Board did not confirm the command. Reconnect and try again.'));},5000);statusWait={resolve,reject,timer,prefixes};});response.catch(()=>{});try{await write(cmd);const notification=await response;return await completeStatusReply(notification,()=>queuedRead(statusChar));}catch(e){rejectStatus(e);throw e;}}
 async function refreshPower(){
  if(!powerChar||powerReading||!device?.gatt.connected)return;
  powerReading=true;
@@ -76,14 +88,18 @@ function onStatus(e){
  if(statusWait&&(s.startsWith('ERR,')||statusWait.prefixes.some(p=>s.startsWith(p)))){const w=statusWait;statusWait=null;clearTimeout(w.timer);s.startsWith('ERR,')?w.reject(Error(s)):w.resolve(s);}
  if(s.startsWith('TRANSFER,')&&transfer)transfer.name=s.split(',')[2];
  else if(s.startsWith('FILE_BEGIN,')&&transfer&&receiver instanceof LegacyReceiver){
-  const parts=s.split(','),size=Number(parts[2]);
-  try{if(transfer.expectedName&&parts[1]!==transfer.expectedName)throw Error('The board returned a different recording.');transfer.name=parts[1];receiver.start(size);}
-  catch(error){failTransfer(error);}
+  const owner=transfer;
+  if(owner.beginLoading||owner.beginSeen)return;
+  owner.beginLoading=true;
+  const begin=full=>{if(transfer!==owner)return;const parts=full.split(','),size=Number(parts[2]);if(owner.expectedName&&parts[1]!==owner.expectedName)throw Error('The board returned a different recording.');owner.name=parts[1];receiver.start(size);owner.beginSeen=true;if(supportsFileNames)return write('FILE_READY');};
+  (supportsFileNames?completeStatusReply(s,()=>queuedRead(statusChar)):Promise.resolve(s)).then(begin).catch(failTransfer);
  }
  else if(s.startsWith('FILE_END,')&&transfer&&receiver instanceof LegacyReceiver){
-  const parts=s.split(',');
-  if(parts[1]!==transfer.name||Number(parts[2])!==receiver.size||!receiver.done||Number(parts[3]?.slice(7))!==receiver.next)failTransfer(Error('Recording transfer ended before all chunks arrived.'));
-  else{transfer.endSeen=true;if(transfer.completed)finishTransfer();}
+  const owner=transfer;
+  if(owner.endLoading||owner.endSeen)return;
+  owner.endLoading=true;
+  const end=full=>{if(transfer!==owner)return;const parts=full.split(',');if(parts[1]!==owner.name||Number(parts[2])!==receiver.size||!receiver.done||Number(parts[3]?.slice(7))!==receiver.next)throw Error('Recording transfer ended before all chunks arrived.');owner.endSeen=true;if(owner.completed)finishTransfer();};
+  (supportsFileNames?completeStatusReply(s,()=>queuedRead(statusChar)):Promise.resolve(s)).then(end).catch(failTransfer);
  }
  else if(s==='TRANSFER_DONE')finishTransfer();
  else if(s.startsWith('ERR,')&&active)failTransfer(Error(s));
@@ -93,13 +109,13 @@ function onStatus(e){
 function showRide(r){ride=r;$('result').hidden=false;$('progress').value=1;$('summary').textContent=`${r.name} · ${r.count.toLocaleString()} samples · ${(r.duration/1000).toFixed(1)} seconds${r.calibration?.bikeName?' · '+r.calibration.bikeName:''}`;$('saved').textContent='This recording is in Bluefy only. Tap Save CSV to Files or Save original to Files before transferring another ride.';$('saveTrainingLabels').hidden=!r.trainingLabels;$('saveDescription').textContent=r.trainingLabels?'Save CSV includes the bike profile and exact training labels. Save original preserves the unmodified sensor file; save the labels separately if you use the original.':'Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.';controls();}
 function failTransfer(e){if(!transfer)return;const t=transfer;transfer=null;active=false;finishing=false;receiver=null;t.reject(e);controls();if(device?.gatt.connected)write('CANCEL_TRANSFER').catch(()=>{});}
 function finishTransfer(){if(!transfer?.completed||!receiver?.done)return;const t=transfer;transfer=null;active=false;finishing=false;receiver=null;t.resolve(t.completed);controls();}
-function download(kind,expectedName=null,metadata={}){if(active)return Promise.reject(Error('A download is already running.'));active=true;finishing=false;receiver=firmwareMode==='legacy'?new LegacyReceiver():new Receiver($('small').checked?20:180);lastPacket=Date.now();$('progress').value=0;controls();message(kind==='setup'?'Downloading the bike setup…':'Transferring the ride to this page…');return new Promise((resolve,reject)=>{transfer={kind,expectedName,name:null,resolve,reject,completed:null,waitingSince:0,...metadata};const command=metadata.requestedFile?(firmwareMode==='legacy'?`GET_FILE,${metadata.requestedFile}`:fileRequest(metadata.requestedFile,receiver.limit)):(firmwareMode==='legacy'?'GET_LATEST':`GET_LATEST,${receiver.limit},8`);write(command).catch(failTransfer);});}
-function onPacket(e){const a=new Uint8Array(e.target.value.buffer,e.target.value.byteOffset,e.target.value.byteLength).slice(),owner=transfer;packetChain=packetChain.then(async()=>{if(!active||!receiver||transfer!==owner)return;lastPacket=Date.now();const result=receiver.accept(a);$('progress').value=receiver.size?receiver.offset/receiver.size:0;if(!receiver.done)message(`${owner.kind==='setup'?'Bike setup':'Ride'}: ${receiver.offset.toLocaleString()} of ${receiver.size.toLocaleString()} bytes`);if(result.done&&!finishing){finishing=true;if(!owner.name){const s=text(await statusChar.readValue());if(s.startsWith('TRANSFER,'))owner.name=s.split(',')[2];}if(owner.expectedName&&owner.name!==owner.expectedName)throw Error('The board returned a different recording. Please reconnect and try again.');const name=owner.name||owner.expectedName||'ride.BIN',decoded=/\.(?:TXT|CSV)$/i.test(name)?parseTextRecording(receiver.bytes):decode(receiver.bytes);if(!decoded.count)throw Error('This recording has no motion samples.');const completed={...decoded,name,bytes:receiver.bytes.slice(),downloadedAt:new Date().toISOString()};if(owner.trainingLabels)completed.trainingLabels={...structuredClone(owner.trainingLabels),sourceFile:completed.name};if(owner.kind==='setup'){completed.calibration=calibrate(samplesFromCsv(decoded.csv),true);await recordStore(`calibration-sample:${device.id}`,completed);}else{const snapshot=workflow.forFile(completed.name);completed.calibration=snapshot?refineRideGyroBias(decoded.csv,snapshot):null;await rideStore(completed);showRide(completed);workflow.completed(completed.name);if(completed.trainingLabels){pendingTrainingLabels=null;await recordStore(trainingKey(),null);}}if(transfer!==owner)return;owner.completed=completed;owner.waitingSince=Date.now();if(owner.endSeen){finishTransfer();return;}}if(result.ack)await write(result.ack);}).catch(failTransfer);}
+function download(kind,expectedName=null,metadata={}){if(active)return Promise.reject(Error('A download is already running.'));active=true;finishing=false;receiver=firmwareMode==='legacy'?new LegacyReceiver():new Receiver($('small').checked?20:180);lastPacket=Date.now();$('progress').value=0;controls();message(kind==='setup'?'Downloading the bike setup…':'Transferring the ride to this page…');return new Promise((resolve,reject)=>{transfer={kind,expectedName,name:null,resolve,reject,completed:null,waitingSince:0,...metadata};const command=metadata.requestedFile?(firmwareMode==='legacy'?`GET_FILE,${metadata.requestedFile}${supportsFileNames?','+($('small').checked?20:180):''}`:fileRequest(metadata.requestedFile,receiver.limit)):(firmwareMode==='legacy'?`GET_LATEST${supportsFileNames?','+($('small').checked?20:180):''}`:`GET_LATEST,${receiver.limit},8`);prepareCommand(command).then(write).catch(failTransfer);});}
+function onPacket(e){const a=new Uint8Array(e.target.value.buffer,e.target.value.byteOffset,e.target.value.byteLength).slice(),owner=transfer;packetChain=packetChain.then(async()=>{if(!active||!receiver||transfer!==owner)return;lastPacket=Date.now();const result=receiver.accept(a);$('progress').value=receiver.size?receiver.offset/receiver.size:0;if(!receiver.done)message(`${owner.kind==='setup'?'Bike setup':'Ride'}: ${receiver.offset.toLocaleString()} of ${receiver.size.toLocaleString()} bytes`);if(result.done&&!finishing){finishing=true;if(!owner.name){const s=text(await statusChar.readValue());if(s.startsWith('TRANSFER,'))owner.name=s.split(',')[2];}if(owner.expectedName&&owner.name!==owner.expectedName)throw Error('The board returned a different recording. Please reconnect and try again.');const name=owner.name||owner.expectedName||'ride.BIN',decoded=/\.(?:TXT|CSV)$/i.test(name)?parseTextRecording(receiver.bytes):decode(receiver.bytes);if(!decoded.count)throw Error('This recording has no motion samples.');const completed={...decoded,name,sourceName:name,originalName:name,sourceDeviceId:device.id,recordingId:newId(),bytes:receiver.bytes.slice(),downloadedAt:new Date().toISOString()};if(owner.trainingLabels)completed.trainingLabels={...structuredClone(owner.trainingLabels),sourceFile:completed.name};if(owner.kind==='setup'){completed.calibration=calibrate(samplesFromCsv(decoded.csv),true);await recordStore(`calibration-sample:${device.id}`,completed);}else{const snapshot=workflow.forFile(completed.name);completed.calibration=snapshot?refineRideGyroBias(decoded.csv,snapshot):null;await rideStore(completed);showRide(completed);workflow.completed(completed.name);if(completed.trainingLabels){pendingTrainingLabels=null;await recordStore(trainingKey(),null);}}if(transfer!==owner)return;owner.completed=completed;owner.waitingSince=Date.now();if(owner.endSeen){finishTransfer();return;}}if(result.ack)await write(result.ack);}).catch(failTransfer);}
 setInterval(()=>{if(!active||!receiver||finishing)return;if(Date.now()-lastPacket>18000){failTransfer(Error('Download timed out. Reconnect and try again, using smaller packets if needed.'));return;}if(Date.now()-lastPacket>=100){const ack=receiver.flush();if(ack)write(ack).catch(failTransfer);}},100);
-let checking=false;setInterval(async()=>{if(!active||!finishing||!transfer?.completed||checking)return;checking=true;const owner=transfer;try{const current=text(await statusChar.readValue());if(current==='TRANSFER_DONE'||(receiver instanceof LegacyReceiver&&current.startsWith(`FILE_END,${owner.name},${receiver.size},`)&&receiver.done))finishTransfer();else if(transfer===owner&&Date.now()-owner.waitingSince>18000)failTransfer(Error('Recording saved, but the board did not confirm completion. Reconnect before continuing.'));}catch(e){failTransfer(e);}finally{checking=false;}},1000);
+let checking=false;setInterval(async()=>{if(!active||!finishing||!transfer?.completed||checking)return;checking=true;const owner=transfer;try{const current=text(await queuedRead(statusChar));if(current==='TRANSFER_DONE'||(receiver instanceof LegacyReceiver&&current.startsWith(`FILE_END,${owner.name},${receiver.size},`)&&receiver.done&&current.split(',')[3]===`CHUNKS=${receiver.next}`))finishTransfer();else if(transfer===owner&&Date.now()-owner.waitingSince>18000)failTransfer(Error('Recording saved, but the board did not confirm completion. Reconnect before continuing.'));}catch(e){failTransfer(e);}finally{checking=false;}},1000);
 async function run(action){if(operation||active)return;operation=true;controls();try{await action();}catch(e){message(e.message);}finally{operation=false;controls();}}
 
-$('connect').onclick=async()=>{if(device?.gatt.connected){device.gatt.disconnect();return;}await run(async()=>{if(!navigator.bluetooth)throw Error('Open this page in Bluefy on your iPhone.');device=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'BikeCoach'}],optionalServices:[uuid('1000')]});device.addEventListener('gattserverdisconnected',()=>{command=null;powerChar=null;$('batteryStatus').textContent='Battery: —';recording=false;profiles=[];selectedProfile=null;legacyCalibration=null;openSetupAfterConnect=false;workflow.disconnected();rejectStatus(Error('Disconnected. Reconnect before continuing.'));failTransfer(Error('Disconnected during download. Reconnect and try again.'));closeSetup();renderProfile();showSetupResult('idle','Disconnected','Saved bike profiles remain on this phone.');message('Disconnected. Saved rides and guided labels remain on this phone.');$('connection').textContent='Not connected';$('firmwareStatus').textContent='Firmware: —';controls();});try{const server=await device.gatt.connect(),service=await server.getPrimaryService(uuid('1000'));command=await service.getCharacteristic(uuid('1001'));statusChar=await service.getCharacteristic(uuid('1002'));const dataChar=await service.getCharacteristic(uuid('1003'));statusChar.addEventListener('characteristicvaluechanged',onStatus);await statusChar.startNotifications();dataChar.addEventListener('characteristicvaluechanged',onPacket);await dataChar.startNotifications();legacyCalibration=await recordStore(calibrationKey());pendingTrainingLabels=await recordStore(trainingKey())||null;const saved=await recordStore(profilesKey()),hadOldProfiles=Array.isArray(saved)&&saved.length>0;profiles=Array.isArray(saved)?saved.filter(validProfile):[];const selected=await recordStore(selectedKey());await chooseProfile(profiles.some(p=>p.id===selected)?selected:profiles[0]?.id||'',false);const info=await confirmed('INFO',['BIKECOACH,']);firmwareMode=/FW=0\.2\.[4-7](?:,|$)/.test(info)?'legacy':'framed';applyBoardState(info);try{powerChar=await service.getCharacteristic(uuid('1004'));await refreshPower();}catch{powerChar=null;$('batteryStatus').textContent='Battery: requires firmware 0.2.6';}$('connection').textContent=recording?'Bike Coach connected · recording':'Bike Coach connected';message(recording?'The board is already recording. Tap Stop recording when finished.':selectedProfile?`${selectedProfile.name} selected. You can start your ride.`:hadOldProfiles?'The direction calculation was corrected. Set up this bike once more.':'Connected. Add your first bike to continue.');if(!profiles.length||openSetupAfterConnect){openSetupAfterConnect=false;openSetup();}}catch(e){openSetupAfterConnect=false;device.gatt.disconnect();throw e;}});};
+$('connect').onclick=async()=>{if(device?.gatt.connected){device.gatt.disconnect();return;}await run(async()=>{if(!navigator.bluetooth)throw Error('Open this page in Bluefy on your iPhone.');device=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'BikeCoach'}],optionalServices:[uuid('1000')]});device.addEventListener('gattserverdisconnected',()=>{command=null;supportsFileNames=false;sdFiles=[];renderSdFiles();powerChar=null;$('batteryStatus').textContent='Battery: —';recording=false;profiles=[];selectedProfile=null;legacyCalibration=null;openSetupAfterConnect=false;workflow.disconnected();rejectStatus(Error('Disconnected. Reconnect before continuing.'));failTransfer(Error('Disconnected during download. Reconnect and try again.'));closeSetup();renderProfile();showSetupResult('idle','Disconnected','Saved bike profiles remain on this phone.');message('Disconnected. Saved rides and guided labels remain on this phone.');$('connection').textContent='Not connected';$('firmwareStatus').textContent='Firmware: —';controls();});try{const server=await device.gatt.connect(),service=await server.getPrimaryService(uuid('1000'));command=await service.getCharacteristic(uuid('1001'));statusChar=await service.getCharacteristic(uuid('1002'));const dataChar=await service.getCharacteristic(uuid('1003'));statusChar.addEventListener('characteristicvaluechanged',onStatus);await statusChar.startNotifications();dataChar.addEventListener('characteristicvaluechanged',onPacket);await dataChar.startNotifications();legacyCalibration=await recordStore(calibrationKey());pendingTrainingLabels=await recordStore(trainingKey())||null;const saved=await recordStore(profilesKey()),hadOldProfiles=Array.isArray(saved)&&saved.length>0;profiles=Array.isArray(saved)?saved.filter(validProfile):[];const selected=await recordStore(selectedKey());await chooseProfile(profiles.some(p=>p.id===selected)?selected:profiles[0]?.id||'',false);const info=await confirmed('INFO',['BIKECOACH,']);firmwareMode=/FW=0\.2\.[4-8](?:,|$)/.test(info)?'legacy':'framed';supportsFileNames=/FW=0\.2\.8(?:,|$)/.test(info);applyBoardState(info);try{powerChar=await service.getCharacteristic(uuid('1004'));await refreshPower();}catch{powerChar=null;$('batteryStatus').textContent='Battery: requires firmware 0.2.6';}$('connection').textContent=recording?'Bike Coach connected · recording':'Bike Coach connected';message(recording?'The board is already recording. Tap Stop recording when finished.':selectedProfile?`${selectedProfile.name} selected. You can start your ride.`:hadOldProfiles?'The direction calculation was corrected. Set up this bike once more.':'Connected. Add your first bike to continue.');if(!profiles.length||openSetupAfterConnect){openSetupAfterConnect=false;openSetup();}}catch(e){openSetupAfterConnect=false;device.gatt.disconnect();throw e;}});};
 
 $('bikeSelect').onchange=()=>run(async()=>{await chooseProfile($('bikeSelect').value);message(`${selectedProfile.name} selected.`);});
 $('addBike').onclick=async()=>{if(!device?.gatt.connected||!command){openSetupAfterConnect=true;message('Choose BikeCoach in the Bluetooth window. Bike setup will open after it connects.');await $('connect').onclick();if(device?.gatt.connected)message('Enter a bike name, then tap Set up this bike.');return;}openSetup();message('Enter a bike name, then tap Set up this bike.');};$('updateBike').onclick=()=>openSetup(selectedProfile);$('cancelSetup').onclick=closeSetup;
@@ -125,13 +141,17 @@ $('stop').onclick=()=>run(async()=>{if(!recording){message('No ride is currently
 $('download').onclick=()=>run(async()=>{if(ride&&!confirm(`Transferring another ride replaces ${ride.name} in Bluefy. Save it to Files first if you need it. Continue?`))return;const expected=workflow.pending?.stopped?workflow.pending.name:null,labels=pendingTrainingLabels?.sourceFile===expected?pendingTrainingLabels:null;const r=await download('ride',expected,{trainingLabels:labels});message(`${r.name} transferred to this page. Tap Save CSV to Files to keep an iPhone copy.`);});
 function renderSdFiles(){
  $('fileList').replaceChildren();
- for(const {name,size} of sdFiles){
+ const query=$('fileSearch').value.trim().toLowerCase();
+ for(const {name,size} of sdFiles.filter(file=>file.name.toLowerCase().includes(query))){
   const row=document.createElement('div'),label=document.createElement('span'),button=document.createElement('button');
   row.className='file-row';label.textContent=name;const detail=document.createElement('small');detail.textContent=`${(size/1024).toFixed(1)} KB`;label.append(detail);
-  button.textContent='Transfer';button.dataset.filename=name;row.append(label,button);$('fileList').append(row);
+  const actions=document.createElement('div'),rename=document.createElement('button');actions.className='file-actions';
+  button.textContent='Transfer';button.dataset.filename=name;rename.textContent='Rename';rename.dataset.rename=name;rename.title=supportsFileNames?'Rename this recording on the SD card':'SD renaming requires firmware 0.2.8';actions.append(button,rename);row.append(label,actions);$('fileList').append(row);
  }
+ if(query&&!$('fileList').childElementCount){const empty=document.createElement('p');empty.textContent='No matches in the loaded recordings. Load more to search the rest.';$('fileList').append(empty);}
  controls();
 }
+$('fileSearch').oninput=renderSdFiles;
 async function loadSdFiles(){
  const start=sdFiles.length;
  $('moreFiles').hidden=true;$('fileListStatus').textContent='Reading SD card…';
@@ -151,9 +171,56 @@ async function loadSdFiles(){
 $('listFiles').onclick=()=>run(async()=>{sdFiles=[];renderSdFiles();await loadSdFiles();});
 $('moreFiles').onclick=()=>run(loadSdFiles);
 $('fileList').onclick=event=>{
+ const rename=event.target.closest('button[data-rename]')?.dataset.rename;
+ if(rename){openRename(rename,true);return;}
  const name=event.target.closest('button[data-filename]')?.dataset.filename;
  if(!name||!sdFiles.some(file=>file.name===name))return;
  run(async()=>{if(ride&&ride.name!==name&&!confirm(`Transferring ${name} replaces ${ride.name} in Bluefy. Save it to Files first if you need it. Continue?`))return;const labels=pendingTrainingLabels?.sourceFile===name?pendingTrainingLabels:null;const completed=await download('ride',name,{requestedFile:name,trainingLabels:labels});message(`${completed.name} transferred to this page. Tap Save CSV to Files to keep an iPhone copy.`);$('result').scrollIntoView({behavior:'smooth',block:'start'});});
+};
+function openRename(name,onBoard){
+ if(onBoard&&(!supportsFileNames||recording||operation||active))return;
+ renameTarget={name,onBoard};
+ $('renameTitle').textContent=onBoard?'Name this trail recording':'Rename downloaded copy';
+ $('renameHelp').textContent=onBoard?'This changes the filename on the bike’s SD card. Include a run number or date for repeated trails.':'This changes the saved/exported name in Bluefy. The filename on the bike stays the same.';
+ $('trailName').value=name.slice(0,-4);$('renameError').textContent='';updateRenamePreview();$('renameDialog').showModal();$('trailName').focus();$('trailName').select();
+}
+function updateRenamePreview(){try{$('renamePreview').textContent=trailFilename($('trailName').value,renameTarget.name);}catch(error){$('renamePreview').textContent=error.message;}}
+$('trailName').oninput=updateRenamePreview;
+$('renameRide').onclick=()=>{if(ride)openRename(ride.name,false);};
+$('cancelRename').onclick=()=>$('renameDialog').close();
+$('renameDialog').addEventListener('cancel',event=>{if(operation)event.preventDefault();});
+$('renameForm').onsubmit=event=>{
+ event.preventDefault();const target=renameTarget;
+ let name;try{name=trailFilename($('trailName').value,target.name);}catch(error){$('renameError').textContent=error.message;return;}
+ if(name.toLowerCase()===target.name.toLowerCase()){$('renameDialog').close();return;}
+ if(target.onBoard&&sdFiles.some(file=>file.name.toLowerCase()===name.toLowerCase())){$('renameError').textContent='That name already exists. Add a run number or date.';return;}
+ run(async()=>{
+  $('confirmRename').disabled=true;$('cancelRename').disabled=true;$('renameError').textContent='';
+  try{
+   if(target.onBoard){
+    const reply=await confirmed(`RENAME_FILE,${target.name},${name}`,['RENAMED,']);
+    parseRenameReply(reply,target.name,name);
+    workflow.rename(target.name,name);
+    sdFiles=sdFiles.map(file=>file.name===target.name?{...file,name}:file);
+    if(pendingTrainingLabels?.sourceFile===target.name)pendingTrainingLabels={...pendingTrainingLabels,sourceFile:name};
+    const matches=ride?.sourceDeviceId===device.id&&(ride.sourceName||ride.name)===target.name;
+    if(matches)ride=renameRecording(ride,name,{onBoard:true});
+    // The SD rename is already confirmed. A browser save failure must not invite
+    // retrying the old SD name or roll back a successful filesystem operation.
+    let saved=true;
+    try{if(pendingTrainingLabels)await recordStore(trainingKey(),pendingTrainingLabels);if(matches)await rideStore(ride);}catch{saved=false;}
+    if(matches)showRide(ride);$('renameDialog').close();
+    // A FAT rename may move the directory entry. Restart enumeration so a
+    // later Load more request cannot skip or duplicate entries at the old index.
+    sdFiles=[];renderSdFiles();let refreshed=true;
+    try{await loadSdFiles();}catch{refreshed=false;}
+    message(!saved?`Renamed on the bike: ${name}. Browser metadata could not be saved; export your downloaded copy now.`:!refreshed?`Renamed on the bike: ${name}. Tap List SD card recordings to refresh the list.`:`Renamed on the bike: ${name}`);
+   }else{
+    const updated=renameRecording(ride,name);await rideStore(updated);showRide(updated);$('renameDialog').close();message(`Downloaded copy renamed: ${name}. Future exports use this name.`);
+   }
+  }catch(error){$('renameError').textContent=error.message.includes('NAME_EXISTS')?'That name already exists on the SD card. Add a run number or date.':error.message;throw error;}
+  finally{$('confirmRename').disabled=false;$('cancelRename').disabled=false;}
+ });
 };
 $('cancelTraining').onclick=()=>{guidedCancelled=true;$('guidedInstruction').textContent='Cancelling safely…';message('Cancelling the guided ride and stopping the recording…');};
 function unlockAudio(){try{const AudioContextClass=globalThis.AudioContext||globalThis.webkitAudioContext;if(AudioContextClass){audioContext=audioContext||new AudioContextClass();audioContext.resume?.();}globalThis.speechSynthesis?.resume?.();}catch{}}
@@ -195,7 +262,7 @@ async function performGuidedTraining(){
 $('guidedTraining').onclick=()=>{unlockAudio();const voice=speak('Bike Coach audio is ready. Starting the guided training ride.');if(!voice)message('Spoken instructions are unavailable in this browser. Keep the screen visible for cues.');return run(performGuidedTraining);};
 $('cancel').onclick=()=>failTransfer(Error('Download cancelled. The original stays on the board.'));
 $('applyCalibration').onclick=()=>run(async()=>{if(!ride||!selectedProfile)return;const r={...ride,calibration:profileCalibration(selectedProfile)};await rideStore(r);showRide(r);message(`${selectedProfile.name} profile attached to this ride.`);});
-$('analyze').onclick=()=>location.href='analyzer.html?v=14&latest=1';
+$('analyze').onclick=()=>location.href='analyzer.html?v=16&latest=1';
 async function save(csv){
  if(!ride)return;
  const base=calibratedCsv(ride.csv,ride.calibration),data=csv?trainingCsv(base,ride.trainingLabels):ride.bytes;

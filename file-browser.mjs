@@ -1,6 +1,6 @@
 // Proposed firmware protocol: LIST_FILES,<index> returns one FILE row or FILES_END.
 // One row per request keeps status notifications below the BLE characteristic limit.
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,23}\.(?:BIN|TXT|CSV)$/i;
+import {validRecordingName} from './recording-names.mjs';
 export function parseFileReply(reply, requestedIndex) {
   const fields = String(reply).split(',');
   if (fields[0] === 'FILES_END') {
@@ -11,13 +11,13 @@ export function parseFileReply(reply, requestedIndex) {
   if (fields[0] !== 'FILE' || fields.length !== 5) throw Error('Invalid file list response.');
   const index = Number(fields[1]), total = Number(fields[2]), name = fields[3], size = Number(fields[4]);
   if (!Number.isSafeInteger(index) || index !== requestedIndex || !Number.isSafeInteger(total) || total <= index ||
-      total > 10000 || !SAFE_NAME.test(name) || !Number.isSafeInteger(size) || size < 0 || size > 64 * 1024 * 1024) {
+      total > 10000 || !validRecordingName(name) || !Number.isSafeInteger(size) || size < 0 || size > 64 * 1024 * 1024) {
     throw Error('Invalid file information from board.');
   }
   return {done: false, index, total, name, size};
 }
 export function fileRequest(name, packetLimit) {
-  if (!SAFE_NAME.test(name)) throw Error('Invalid recording filename.');
+  if (!validRecordingName(name)) throw Error('Invalid recording filename.');
   if (packetLimit !== 20 && packetLimit !== 180) throw Error('Invalid packet size.');
   return `GET_FILE,${name},${packetLimit},8`;
 }

@@ -8,5 +8,6 @@ export class RideWorkflow {
   stop(name){if(this.pending?.name===name)this.pending.stopped=true;else this.pending=null;}
   forFile(name){return this.pending?.stopped&&this.pending.name===name?structuredClone(this.pending.calibration):null;}
   completed(name){if(this.pending?.name===name)this.pending=null;}
+  rename(oldName,newName){if(this.pending?.name===oldName)this.pending.name=newName;}
   disconnected(){this.pending=null;this.calibration=null;}
 }
