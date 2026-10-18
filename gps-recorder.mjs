@@ -1,4 +1,4 @@
-import {normalizeFix,MAX_POINTS} from './gps.mjs?v=1';
+import {normalizeFix,MAX_POINTS} from './gps.mjs?v=2';
 export class GpsRecorder{
  constructor({store,onStatus=()=>{},geo=globalThis.navigator?.geolocation,now=()=>Date.now()}={}){this.store=store;this.onStatus=onStatus;this.geo=geo;this.now=now;this.watch=null;this.current=null;this.queue=Promise.resolve();this.segment=0;this.lastSave=0;this.wake=null;}
  status(text){this.onStatus(text);}

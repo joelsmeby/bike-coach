@@ -1,9 +1,10 @@
 import {project,WORLD,visibleTiles} from './gps-map.mjs?v=1';
-import {gpsSummary,positionAt,approachSpeed,goodPoint,connectedPoints} from './gps.mjs?v=1';
+import {gpsSummary,positionAt,approachSpeed,goodPoint,connectedPoints} from './gps.mjs?v=2';
 export function renderGpsRoute(container,gps,jumps=[],firstSampleMs=0,onJump=()=>{}){
  container.replaceChildren();
  const add=(tag,text,parent=container)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;parent.append(e);return e;};
  if(!gps){add('p','No phone GPS attached. Record a new ride with phone GPS enabled, or import its matching GPS file.').className='footer';return;}
+ if(gps.timingMethod==='phone-command')add('p','GPS timing is approximate: this firmware uses phone command timing.').className='footer';
  const details=add('details');add('summary','GPS quality & timing',details);
  const s=gpsSummary(gps),summary=add('p',`${s.usable} usable GPS fixes · approximate recorded distance ${(s.distance/1000).toFixed(2)} km · peak reported speed ${s.maxSpeed===null?'unavailable':(s.maxSpeed*3.6).toFixed(1)+' km/h'} · ${s.gaps} breaks or rejected intervals`);
  summary.className='footer';
