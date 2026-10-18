@@ -45,6 +45,7 @@
   }
   body.native-shell #baud,body.native-shell #connectBtn,body.native-shell #disconnectBtn{display:none}
   body.native-shell header .sub{display:block}
+.legend{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}.legend .line-toggle{display:inline-flex;align-items:center;gap:5px;padding:4px 0;border:0;background:none;cursor:pointer}.line-toggle input[type="checkbox"]{width:auto;min-width:16px;min-height:16px;margin:0;accent-color:#60a5fa}
 </style>
 </head>
 <body class="native-shell">
@@ -209,6 +210,18 @@ let viewStartTs=null, viewEndTs=null, dragging=null;
 const MAX_KEEP=120000;
 
 const $=id=>document.getElementById(id);
+const lineVisibility={accChart:[true,true,true],gyroChart:[true,true,true],magChart:[true,true,true],angleChart:[true]};
+const lineColors=["#60a5fa","#f59e0b","#34d399","#f472b6"];
+function lineControls(legendId,canvasId,names,unit){
+ const legend=$(legendId);legend.replaceChildren();
+ names.forEach((name,index)=>{
+  const label=document.createElement('label'),box=document.createElement('input'),text=document.createElement('span');
+  label.className='line-toggle';box.type='checkbox';box.checked=lineVisibility[canvasId][index];box.dataset.chart=canvasId;box.dataset.series=index;
+  box.onchange=()=>{lineVisibility[canvasId][index]=box.checked;};
+  text.textContent=name;text.style.color=lineColors[index];label.append(box,text);legend.append(label);
+ });
+ const units=document.createElement('span');units.textContent=unit;legend.append(units);
+}
 const canvases={acc:$("accChart"),gyro:$("gyroChart"),mag:$("magChart"),angle:$("angleChart")};
 
 function setStatus(text,on=false){$("status").textContent=text;$("dot").className="dot"+(on?" on":"")}
@@ -570,11 +583,15 @@ function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
   }
   const t0=data[0].ts,t1=data[data.length-1].ts,dt=Math.max(.001,t1-t0);
   drawTestOverlay(ctx,data,pad,pw,ph,dpr);
-  ctx.textAlign="center";for(let i=0;i<5;i++){let x=pad.l+pw*i/4;ctx.fillText(((t1-t0)*i/4).toFixed(1)+"s",x,h-8*dpr)}
-  const cols=["#60a5fa","#f59e0b","#34d399","#f472b6"];
-  series.forEach((s,si)=>{ctx.strokeStyle=cols[si%cols.length];ctx.lineWidth=1.5*dpr;ctx.beginPath();let started=false;
+  const rideStart=samples[0].ts,timeDecimals=tickDecimals(dt/4);
+  ctx.textAlign="center";for(let i=0;i<5;i++){const x=pad.l+pw*i/4;ctx.fillText((t0-rideStart+dt*i/4).toFixed(Math.min(3,Math.max(1,timeDecimals)))+"s",x,h-8*dpr)}
+  const cols=lineColors;
+  series.forEach((s,si)=>{if(!lineVisibility[canvas.id][si])return;ctx.strokeStyle=cols[si%cols.length];ctx.lineWidth=1.5*dpr;ctx.beginPath();let started=false;
     data.forEach(p=>{let v=s.get(p);if(!Number.isFinite(v))return;let x=pad.l+(p.ts-t0)/dt*pw,y=pad.t+(ymax-v)/(ymax-ymin)*ph;if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y)});ctx.stroke();
   });
+  if(lineVisibility[canvas.id].every(visible=>!visible)){
+    ctx.fillStyle="#aeb7c4";ctx.textAlign="center";ctx.fillText("All lines hidden",pad.l+pw/2,pad.t+20*dpr);
+  }
 }
 function visibleData(){
   if(!samples.length)return [];
@@ -591,7 +608,7 @@ function visibleData(){
 }
 function update(){
   const d=visibleData(), last=samples[samples.length-1];
-  $("sampleCount").textContent=samples.length.toLocaleString();$("windowLabel").textContent=(+$("windowSec").value||20)+" s";
+  $("sampleCount").textContent=samples.length.toLocaleString();$("windowLabel").textContent=(d.length>1?(d.at(-1).ts-d[0].ts).toFixed(1):(+$("windowSec").value||20))+" s";
   if(last){
     const elapsed=last.ts-samples[0].ts;
     $("rate").textContent=(elapsed>0?((samples.length-1)/elapsed).toFixed(1):"—")+" Hz";
@@ -618,12 +635,12 @@ $("fileInput").onchange=async e=>{const f=e.target.files[0];try{if(f){if(/\.bin$
 function refreshFrameLabels(){
   const bike=$("coordFrame").value==="bike";
   for(const [id,name] of [["accTitle","Acceleration"],["gyroTitle","Rotation"],["magTitle","Magnetometer"]])$(id).textContent=name+(bike?" — Bike Frame":" — Raw Sensor Axes");
-  $("accLegend").textContent=bike?"Forward / Left / Up — mg":"aX / aY / aZ — mg";
-  $("gyroLegend").textContent=bike?"Roll / Pitch / Yaw rate — °/s":"gX / gY / gZ — °/s";
-  $("magLegend").textContent=bike?"Forward / Left / Up — logged units":"mX / mY / mZ — logged units";
+  lineControls("accLegend","accChart",bike?["Forward","Left","Up"]:["aX","aY","aZ"],"mg");
+  lineControls("gyroLegend","gyroChart",bike?["Roll","Pitch","Yaw"]:["gX","gY","gZ"],"°/s");
+  lineControls("magLegend","magChart",bike?["Forward","Left","Up"]:["mX","mY","mZ"],"logged units");
   const axis=selectedAngleAxis();
   const pretty={yawRate:"yaw rate",rollRate:"roll rate",pitchRate:"pitch rate",gX:"gX",gY:"gY",gZ:"gZ"}[axis]||axis;
-  $("angleLegend").textContent="integral of "+pretty+" — degrees";
+  lineControls("angleLegend","angleChart",["Integrated "+pretty],"degrees");
 }
 $("coordFrame").onchange=()=>{recomputeAngles();angleOffset=0;refreshFrameLabels()};
 $("yawAxis").onchange=()=>{recomputeAngles();angleOffset=0;refreshFrameLabels()};

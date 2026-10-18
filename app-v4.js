@@ -315,7 +315,7 @@ async function performGuidedTraining(){
 $('guidedTraining').onclick=()=>{unlockAudio();const voice=speak('Bike Coach audio is ready. Starting the guided training ride.');if(!voice)message('Spoken instructions are unavailable in this browser. Keep the screen visible for cues.');return run(performGuidedTraining);};
 $('cancel').onclick=()=>failTransfer(Error('Download cancelled. The original stays on the board.'));
 $('applyCalibration').onclick=()=>run(async()=>{if(!ride||!selectedProfile)return;const r={...ride,calibration:profileCalibration(selectedProfile)};await rideStore(r);showRide(r);message(`${selectedProfile.name} profile attached to this ride.`);});
-$('analyze').onclick=()=>location.href='analyzer.html?v=17&latest=1';
+$('analyze').onclick=()=>location.href='analyzer.html?v=18&latest=1';
 async function save(csv){
  if(!ride)return;
  const base=calibratedCsv(ride.csv,ride.calibration),data=csv?withGps(trainingCsv(base,ride.trainingLabels),ride.gps||gpsFromCsv(ride.csv)):ride.bytes;
