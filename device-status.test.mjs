@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {completeStatusReply,powerDescription} from './device-status.mjs';
+import {completeStatusReply,powerDescription,firmwareCapabilities} from './device-status.mjs';
 import {parseFileReply} from './file-browser.mjs';
 const value=text=>new DataView(new TextEncoder().encode(text).buffer);
 
@@ -30,4 +30,15 @@ test('battery voltage estimates are bounded and external supply does not show 10
  assert.match(powerDescription('POWER,5000'),/External power.*unavailable/);
  assert.equal(powerDescription('POWER,0'),'Battery: voltage unavailable');
  assert.equal(powerDescription('POWER,'),'Battery: voltage unavailable');
+});
+
+test('original 0.2.9 selects the six-byte receiver, staged commands and FILE_READY',()=>{
+ assert.deepEqual(firmwareCapabilities('BIKECOACH,FW=0.2.9,STATE=IDLE,FILE='),{mode:'legacy',fileNames:true});
+ assert.deepEqual(firmwareCapabilities('BIKECOACH,FW=0.2.8,STATE=IDLE,FILE='),{mode:'legacy',fileNames:true});
+ assert.deepEqual(firmwareCapabilities('BIKECOACH,FW=0.2.6,STATE=IDLE,FILE='),{mode:'legacy',fileNames:false});
+});
+test('advertised capabilities survive version bumps and override fallbacks',()=>{
+ assert.deepEqual(firmwareCapabilities('BIKECOACH,FW=0.2.10,TRANSFER=LEGACY6,FILES=1,STATE=IDLE,FILE='),{mode:'legacy',fileNames:true});
+ assert.deepEqual(firmwareCapabilities('BIKECOACH,FW=3.0.0,TRANSFER=LEGACY6,FILES=1'),{mode:'legacy',fileNames:true});
+ assert.deepEqual(firmwareCapabilities('BIKECOACH,FW=0.2.9,TRANSFER=FRAMED,FILES=0'),{mode:'framed',fileNames:false});
 });

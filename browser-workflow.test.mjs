@@ -14,7 +14,7 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.BI
 try{
  const context=await browser.newContext({viewport:{width:390,height:844}}),page=await context.newPage(),errors=[];
  page.on('pageerror',error=>errors.push(error.message));
- await context.addInitScript(()=>{
+ await context.addInitScript(({firmwareInfo})=>{
   Object.defineProperty(navigator,'share',{value:undefined,configurable:true});
   let gpsTimer;
   Object.defineProperty(navigator,'geolocation',{value:{watchPosition(success){const fix=()=>success({timestamp:Date.now(),coords:{latitude:47,longitude:-122,accuracy:5,speed:3}});gpsTimer=setInterval(fix,100);return 9;},clearWatch(){clearInterval(gpsTimer);}},configurable:true});
@@ -41,15 +41,17 @@ try{
    if(raw==='CMD_RUN'){cmd=staged;staged='';}
    window.fakeBoard.commands.push(cmd);
    let reply;
-   if(cmd==='INFO')reply='BIKECOACH,FW=0.2.8,STATE=IDLE,FILE=';
+   if(cmd==='INFO')reply=firmwareInfo;
    else if(cmd==='START_RIDE'){rideStarted=Date.now();lastRide='GPS_Ride.TXT';reply='LOGGING,'+lastRide;}
    else if(cmd==='STOP_RIDE'){
     if(!rideStarted)reply='IDLE';
     else{const count=Math.max(2,Math.floor((Date.now()-rideStarted)/20));const rideRows=Array.from({length:count},(_,i)=>`01/01/2000,00:00:${(i/50).toFixed(2).padStart(5,'0')},0,0,1000,0,0,0,0,0,0,20,50,`);files.set(lastRide,encode(csv.split('\n')[0]+'\n'+rideRows.join('\n')));rideStarted=0;reply='SAVED,'+lastRide;}
    }
+   else if(cmd.startsWith('GET_LATEST')&&!/^GET_LATEST,(20|180)$/.test(cmd))reply='ERR,PACKET_SIZE';
    else if(cmd.startsWith('GET_LATEST')){transfer={name:lastRide,bytes:files.get(lastRide),offset:0,count:0,limit:Number(cmd.split(',')[1])};reply=`FILE_BEGIN,${lastRide},${transfer.bytes.length}`;}
    else if(cmd.startsWith('LIST_FILES,')){const i=Number(cmd.split(',')[1]),entries=[...files];reply=i===entries.length?`FILES_END,${i}`:`FILE,${i},${entries.length},${entries[i][0]},${entries[i][1].length}`;}
    else if(cmd.startsWith('RENAME_FILE,')){const [,oldName,newName]=cmd.split(',');if([...files.keys()].some(n=>n.toLowerCase()===newName.toLowerCase()))reply='ERR,NAME_EXISTS';else{files.set(newName,files.get(oldName));files.delete(oldName);reply=`RENAMED,${oldName},${newName}`;}}
+   else if(cmd.startsWith('GET_FILE,')&&!/^GET_FILE,[^,]+,(20|180)$/.test(cmd))reply='ERR,PACKET_SIZE';
    else if(cmd.startsWith('GET_FILE,')){const [,name,limit]=cmd.split(',');transfer={name,bytes:files.get(name),offset:0,count:0,limit:Number(limit)};reply=`FILE_BEGIN,${name},${transfer.bytes.length}`;}
    else if(cmd==='FILE_READY'){
     const owner=transfer;
@@ -66,7 +68,7 @@ try{
   const chars={'1001':command,'1002':status,'1003':data,'1004':power};
   const device=new EventTarget();device.id='fake-bike';device.gatt={connected:false,async connect(){this.connected=true;return{getPrimaryService:async()=>({getCharacteristic:async uuid=>chars[uuid.slice(4,8)]})};},disconnect(){this.connected=false;device.dispatchEvent(new Event('gattserverdisconnected'));}};
   Object.defineProperty(navigator,'bluetooth',{value:{requestDevice:async()=>device},configurable:true});
- });
+ },{firmwareInfo:process.env.BIKECOACH_TEST_INFO||'BIKECOACH,FW=0.2.9,STATE=IDLE,FILE='});
  await page.goto(`http://127.0.0.1:${server.address().port}/`);
  await page.evaluate(async()=>{
   const {calibrate,setLevelReference}=await import('./calibration.mjs?v=9'),{createProfile}=await import('./profiles.mjs?v=2'),{recordStore}=await import('./storage.js?v=3');
@@ -74,7 +76,7 @@ try{
   const calibration=setLevelReference(calibrate(rows,true));
   await recordStore('bike-profiles:fake-bike',[createProfile({id:'test-bike',name:'Test bike',calibration,mountPitch:0,mountRoll:0})]);
  });
- await page.click('#connect');await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent.includes('0.2.8'));
+ await page.click('#connect');await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent.includes('Firmware: 0.2.'));
  assert.match(await page.textContent('#recordingStatus'),/OFF/);
  await page.click('#listFiles');await page.waitForFunction(()=>document.querySelector('#fileListStatus').textContent==='2 recordings on the SD card.');
  const long='Family_Man_Run_1_20261017_Long_Trail_Name';
@@ -120,7 +122,7 @@ try{
  await mapPage.waitForSelector('#gpsRoute svg');assert.match(await mapPage.textContent('#gpsRoute'),/usable GPS fixes/);
  const analyzerDownloadPromise=mapPage.waitForEvent('download');await mapPage.click('#exportGpsRide');const analyzerDownload=await analyzerDownloadPromise;
  assert.match(await readFile(await analyzerDownload.path(),'utf8'),/# BikeCoachGPS=/);await mapPage.close();
- await page.click('#connect');await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent.includes('0.2.8'));
+ await page.click('#connect');await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent.includes('Firmware: 0.2.'));
  await page.evaluate(()=>navigator.bluetooth.requestDevice().then(device=>device.gatt.disconnect()));
  assert.match(await page.textContent('#recordingStatus'),/unknown/);assert.equal(await page.locator('#fileList .file-row').count(),0);
  assert.deepEqual(errors,[]);

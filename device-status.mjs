@@ -27,3 +27,18 @@ export function powerDescription(reply) {
   }
   return `Battery: ~${Math.round(percent)}% · ${volts} (voltage estimate)`;
 }
+
+// Explicit capabilities take priority. Fallbacks support released firmware
+// which predates capability advertising, including the original 0.2.9 build.
+export function firmwareCapabilities(info) {
+  const fields = Object.fromEntries(String(info).split(',').slice(1).map(field => {
+    const at = field.indexOf('=');
+    return at < 0 ? [field, ''] : [field.slice(0, at), field.slice(at + 1)];
+  }));
+  const oldLegacy = /^0\.2\.[4-9]$/.test(fields.FW || '');
+  const oldFiles = /^0\.2\.[89]$/.test(fields.FW || '');
+  return {
+    mode: fields.TRANSFER ? (fields.TRANSFER === 'LEGACY6' ? 'legacy' : 'framed') : (oldLegacy ? 'legacy' : 'framed'),
+    fileNames: fields.FILES !== undefined ? fields.FILES === '1' : oldFiles
+  };
+}
