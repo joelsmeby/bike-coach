@@ -4,7 +4,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=8">
 <body><main>
-<header><strong>BIKE COACH · 5.2</strong><a href="analyzer.html?v=16">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 5.2.1</strong><a href="analyzer.html?v=17">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
@@ -58,6 +58,7 @@
  <h2>Bike profile backup</h2><p>Profiles are stored only on this phone. Export a small backup file before clearing Bluefy data or changing phones.</p>
  <div class="row"><button id="exportProfiles" disabled>Export profiles</button><button id="importProfiles" disabled>Import profiles</button></div><input id="profileFile" type="file" accept="application/json,.json" hidden>
 </section>
+<section aria-label="Phone GPS"><p id="gpsStatus" role="status" aria-live="polite">GPS starts with every ride. Allow location access and keep Bluefy visible with the screen on.</p><button id="saveGps" class="quiet">Save latest GPS backup to Files</button></section>
 <section id="result" hidden><h2>Ride transferred to this page</h2><p id="summary"></p><button id="renameRide" class="quiet">Rename downloaded copy</button><button id="analyze">Analyze this ride</button><div class="row"><button id="saveCsv">Save CSV to Files</button><button id="saveBin">Save original to Files</button></div><button id="saveTrainingLabels" hidden>Save training labels</button><p id="saved">This is the latest recording stored in Bluefy. Save a copy to Files before transferring another ride.</p><button id="applyCalibration" hidden>Use selected bike profile for this ride</button><p id="saveDescription">Save CSV includes the bike profile calibration. Save original preserves the unmodified sensor file.</p></section>
 <dialog id="renameDialog" aria-labelledby="renameTitle"><form id="renameForm">
  <h2 id="renameTitle">Name this trail recording</h2><p id="renameHelp"></p>
@@ -66,4 +67,4 @@
  <div class="row"><button id="cancelRename" type="button" class="quiet">Cancel</button><button id="confirmRename" type="submit">Rename</button></div>
 </form></dialog>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=10"></script></body></html>
+</main><script type="module" src="app-v4.js?v=11"></script></body></html>
