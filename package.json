@@ -1,0 +1,16 @@
+{
+  "name": "bike-coach",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Development checks for the Bike Coach web app and Artemis firmware",
+  "packageManager": "pnpm@11.25.0",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "test": "node --test device-status.test.mjs gps-workflow.test.mjs recording-names.test.mjs",
+    "test:firmware": "node firmware-commands.test.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:all": "pnpm test && pnpm test:firmware && pnpm test:browser",
+    "firmware:build": "node scripts/build-firmware.mjs"
+  },
+  "devDependencies": { "playwright": "1.62.1" }
+}
