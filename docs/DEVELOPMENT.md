@@ -18,8 +18,8 @@
 ## Current source and data boundaries
 
 - Current sketch: `firmware/OpenLog_Artemis_BikeCoach/`.
-- The v0.2.6 sketch is historical, even if a local copy has later experimental edits.
-- Keep previous working copies, backup archives and build outputs under `.local/` or outside the checkout. Preserve files before removing duplicates.
+- The original v0.2.6 sketch is historical and lives under `archive/firmware/`. The separate locally modified experiment is preserved under `archive/local/`.
+- Keep previous working copies under `archive/local/`, local backups under `.local/`, and generated packages under `dist/`. Preserve files before removing duplicates.
 - The initial workspace backup is `.local/backups/before-workflow-2026-10-18.tar.gz`. This is a local recovery copy, not an off-machine backup.
 - Full original ride files and video need backed-up private storage. Reference them from Notion; use small, intentional fixtures for automated tests.
 - Executable protocol/file-format specifications belong in Git alongside the code. Product priorities and physical test outcomes belong in Notion.
@@ -32,4 +32,4 @@ The current firmware targets 250 Hz and uses RTC timestamps with hundredth-secon
 
 ## Deferred improvements
 
-Release packaging, candidate website deployments, branch-protection settings, duplicate-code cleanup and higher-precision recording timestamps remain separate backlog work. This baseline adds checks without changing recording or analysis behavior.
+Candidate website deployments and higher-precision recording timestamps remain separate backlog work. Release packaging is documented in `docs/RELEASING.md`; main-branch protection requires both automated check jobs. Archiving and packaging do not change recording or analysis behavior.

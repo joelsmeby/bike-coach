@@ -1,5 +1,6 @@
 # Local backups, downloaded copies, build output and personal recordings.
 .local/
+archive/local/
 .DS_Store
 node_modules/
 dist/

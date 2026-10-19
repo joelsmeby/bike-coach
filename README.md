@@ -12,7 +12,9 @@ Bike Coach records bike motion on an OpenLog Artemis and uses a phone webpage to
 
 The webpage starts at `index.html` and currently loads `app-v4.js`. The analyzer starts at `analyzer.html`. Upload firmware from **`firmware/OpenLog_Artemis_BikeCoach/OpenLog_Artemis_BikeCoach.ino`**.
 
-Other sketch folders and application versions are historical. Do not use numbered extracted folders as the source of a new change. Local ZIPs and copies are retained but excluded from Git. Current work uses web 5.2.3 and firmware 0.2.11; build and physical validation are separate facts. Consult GitHub and Notion for the status of a particular release.
+Older sketches and application versions are under `archive/`. Local ZIPs and extracted copies are retained under `archive/local/` and excluded from Git. Do not use those copies as the source of a new change. The baseline uses web 5.2.3 and firmware 0.2.11; build and physical validation are separate facts. Consult GitHub and Notion for the status of a particular release.
+
+Download installation packages from [GitHub Releases](https://github.com/joelsmeby/bike-coach/releases). Each package identifies its web version, firmware version and source commit. See [release instructions](docs/RELEASING.md) for generation, verification and recovery.
 
 ## Automatic checks
 
@@ -27,14 +29,17 @@ pnpm test
 pnpm test:browser
 pnpm test:firmware
 pnpm firmware:build
+pnpm package
+pnpm package:verify
 ```
 
 - `test`: fast checks of GPS association, file naming and Bluetooth messages.
 - `test:browser`: opens an automated browser and simulates recording/download/export and chart use. It does not connect to the bike.
 - `test:firmware`: checks firmware commands using a desktop C++ compiler (`g++`). macOS needs Command Line Tools; Ubuntu CI provides the compiler.
 - `firmware:build`: checks that the current sketch can be compiled with the versions in `sketch.yaml`. Requires Arduino CLI 1.5.1 (bundled with the installed Arduino IDE). The first build downloads its pinned dependencies. It does not upload firmware.
+- `package` and `package:verify`: create installation ZIPs from a saved commit, check their file fingerprints and exercise the extracted webpage in an automated browser.
 
-The same checks run on GitHub pull requests. A successful website deployment is a separate check; it does not prove that the bike hardware works.
+The same checks run on GitHub pull requests. The main branch requires passing software/browser checks and the Artemis build before merging. A second person's approval is not required for this solo project. A successful website deployment is a separate check; it does not prove that the bike hardware works.
 
 ## How we make a change
 

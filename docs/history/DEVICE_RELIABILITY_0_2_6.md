@@ -1,4 +1,6 @@
-# Device Reliability — Implementation Status
+# Historical device-reliability checklist (v0.2.6)
+
+Preserved for reference. This is not the current project backlog or evidence that the current hardware has passed these tests. Track current requirements and validation in Notion.
 
 ## Implemented in source
 
@@ -30,3 +32,7 @@
 ## Release gate
 
 Do not mark GitHub issue #1 complete until the physical-board checks above pass.
+
+## Backlog tracking
+
+Notion is the source of truth for the project backlog. Track BLE transfer-speed improvements in [Improve BLE transfer speed for 250 Hz recordings](https://app.notion.com/p/3feee7b8cda381d18ab3c41d9f9c373c).
