@@ -8,11 +8,17 @@ importers:
 
   .:
     devDependencies:
+      fflate:
+        specifier: 0.8.2
+        version: 0.8.2
       playwright:
         specifier: 1.62.1
         version: 1.62.1
 
 packages:
+
+  fflate@0.8.2:
+    resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
   fsevents@2.3.2:
     resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
@@ -30,6 +36,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  fflate@0.8.2: {}
 
   fsevents@2.3.2:
     optional: true

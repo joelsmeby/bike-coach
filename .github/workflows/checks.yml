@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -25,6 +26,13 @@ jobs:
       - run: pnpm test
       - run: pnpm test:firmware
       - run: pnpm test:browser
+      - run: pnpm package
+      - run: pnpm package:verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installation-packages
+          path: dist/
+          if-no-files-found: error
   firmware:
     name: Artemis firmware build
     runs-on: ubuntu-latest
