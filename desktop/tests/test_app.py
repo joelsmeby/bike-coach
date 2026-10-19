@@ -89,6 +89,16 @@ class AppTests(unittest.TestCase):
         w.autosave()
         self.assertEqual(read_session(path)[0]["labels"], [])
 
+    def test_full_ride_restores_hidden_curves_and_y_autorange(self):
+        w = self.window
+        w.raw_curve.hide()
+        w.clean_curve.hide()
+        w.load_plot.setYRange(20, 30)
+        w.full_ride()
+        self.assertTrue(w.raw_curve.isVisible())
+        self.assertTrue(w.clean_curve.isVisible())
+        self.assertTrue(w.load_plot.getViewBox().autoRangeEnabled()[1])
+
 
 if __name__ == "__main__":
     unittest.main()

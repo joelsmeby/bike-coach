@@ -4,9 +4,9 @@ A native, local analysis app for developing jump detection against ride recordin
 
 ## Open on Joel's Mac
 
-The project-local Python environment is under `.local/desktop-venv/`. Double-click **Open Bike Coach.command**, or the **Bike Coach Workbench.app** launcher generated in the project's `.local/` folder. After the first session is saved, the app reopens the last saved session on its next launch.
+The project-local Python environment is under `.local/desktop-venv/`. In Finder, open **desktop → dist → Bike Coach Workbench.app**. This is a native macOS launcher, not a shell script renamed as an app. After the first session is saved, the app reopens the last saved session on its next launch. Right-click its Dock icon → Options → Keep in Dock for quick access. **Open Bike Coach.command** remains available for troubleshooting.
 
-On another Mac, install Python 3.12 or later and double-click **Setup Bike Coach.command** once. Setup installs the pinned packages into an isolated project environment and generates the local app launcher. Python 3.12 on macOS 14+ is the tested configuration. This launcher depends on this source checkout and environment; it is not a self-contained distributable application. Moving the checkout requires regenerating the launcher and environment.
+On another Mac, install Python 3.12 or later and double-click **Setup Bike Coach.command** once. Setup installs the pinned runtime/build packages into an isolated project environment and uses py2app alias mode to generate the native launcher. Python 3.12 on macOS 14+ is the tested configuration. This launcher depends on this source checkout and environment; it is not a self-contained distributable application. Moving the checkout requires regenerating the launcher and environment. The builder preserves replaced launchers under `.local/launcher-backups/` and makes the former hidden app path point to the visible app. There is one canonical app bundle.
 
 ## Use it
 
@@ -65,3 +65,7 @@ PYTHONPATH=desktop .local/desktop-venv/bin/python -m unittest discover -s deskto
 Tests cover signal filtering, candidate selection, no-impact intervals, gaps, clipping assumptions, repeated 250 Hz timestamps, date rollover, session fingerprint checking/relocation, labeling, comparison runs, save/reopen and invalid-setting protection. Fixtures are generated synthetic recordings, not personal rides. GUI checks use Qt's offscreen platform and do not establish physical riding accuracy.
 
 The app needs a running desktop session for normal use. Errors from the app launcher are logged under `.local/desktop-workbench.log`. Code lives in `bike_workbench/analysis.py`, `session.py` and `app.py`; the analysis engine has no GUI dependency and can be reused later.
+
+## Compare detection sensitivity
+
+`PYTHONPATH=desktop .local/desktop-venv/bin/python -m bike_workbench.sweep /path/to/ride.csv --output .local/sensitivity.json` compares 216 nearby settings across median and moving-average filters. The report includes original, balanced and sensitive review profiles, candidate overlap across settings, and flags for multiple candidates pointing to the same impact crossing. Parameter support is a sensitivity measure, not a probability that an event is a jump. No target count is used and no profile is claimed to be most accurate without confirmed labels. At 250 Hz, select filter windows in samples deliberately; a 3-sample window has a different physical duration than in the old 50 Hz recording. The GUI flags shared impact crossings in the Review column and shows their distinct count. **Full ride** also restores hidden primary curves and vertical auto-ranging if a plot appears blank.

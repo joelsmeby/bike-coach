@@ -8,6 +8,7 @@ if [[ ! -x "$runtime" ]]; then
   python3 -m venv ../.local/desktop-venv
 fi
 "$runtime" -m pip install -r requirements.txt
+"$runtime" -m pip install -r requirements-build.txt
 "$runtime" install_launcher.py
-echo "Setup complete. Open Bike Coach Workbench.app in the project .local folder, or Open Bike Coach.command."
+echo "Setup complete. Open desktop/dist/Bike Coach Workbench.app, or Open Bike Coach.command."
 read -r "reply?Press Return to close. "

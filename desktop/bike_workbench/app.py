@@ -551,11 +551,16 @@ class Workbench(W.QMainWindow):
                       "—" if e["impact_s"] is None else f"{e['impact_s']:.3f}",
                       "—" if e["impact_g"] is None else f"{e['impact_g']:.2f}" + (" *" if e["clipped"] else ""),
                       ", ".join(overlap) or "Unreviewed"]
+            if e["impact_s"] is not None and sum(other["impact_s"] == e["impact_s"] for other in r["events"]) > 1:
+                values[-1] += " · shared impact"
             for column, value in enumerate(values):
-                self.event_table.setItem(row, column, W.QTableWidgetItem(str(value)))
+                item = W.QTableWidgetItem(str(value))
+                item.setToolTip(str(value))
+                self.event_table.setItem(row, column, item)
         self.event_table.blockSignals(False)
         score = evaluate(r["events"], self.labels)
-        self.count_label.setText(f"{len(r['events'])} candidates · {len(self.labels)} labels")
+        unique_impacts = len({event["impact_s"] for event in r["events"] if event["impact_s"] is not None})
+        self.count_label.setText(f"{len(r['events'])} candidates · {unique_impacts} impact crossings · {len(self.labels)} labels")
         self.notice.setText(f"{len(t):,} samples · ~{r['sample_hz']:.1f} Hz · {r['gap_count']} gaps · "
                             f"{100 * clip.mean():.1f}% accel range flags · "
                             f"labeled jumps found {score['matched_jumps']}/{score['labeled_jumps']} · * windows ≠ verified airtime; impact may be clipped")
@@ -587,6 +592,12 @@ class Workbench(W.QMainWindow):
 
     def full_ride(self):
         if self.result:
+            self.raw_curve.show()
+            self.clean_curve.show()
+            for curve in self.gyro_curves:
+                curve.show()
+            for plot in (self.load_plot, self.gyro_plot, self.overview):
+                plot.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
             self.load_plot.setXRange(0, self.result["time"][-1], padding=0)
             self.overview.setXRange(0, self.result["time"][-1], padding=0)
 
@@ -794,4 +805,5 @@ def run(path=None):
         if last and Path(last).is_file():
             window.open_session(path=last)
     window.show()
+    print(f"Workbench ready: {window.file_label.text()} · {window.count_label.text()}", flush=True)
     sys.exit(app.exec())
