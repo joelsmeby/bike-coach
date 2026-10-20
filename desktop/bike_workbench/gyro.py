@@ -57,7 +57,7 @@ def vibration(ride, time, settings, segments):
         mapped = np.interp(t, grid, rough)
         mapped[np.interp(t, grid, invalid.astype(float)) > 0] = np.nan
         out[start:end] = mapped
-    return out, channel, ["Gyro evidence is relative vibration contrast, not jump probability. Centered filters blur timing; acceleration boundaries are retained."]
+    return out, channel, ["Gyro evidence is relative vibration contrast, not jump probability. Centered filters blur timing; gyro refinement is bounded and remains an estimate."]
 
 
 def evidence(time, rough, event, settings, segment):
@@ -106,5 +106,82 @@ def evidence(time, rough, event, settings, segment):
         result["status"] = "supports" if result["takeoff_supported"] and result["landing_supported"] else "mixed" if result["takeoff_supported"] or result["landing_supported"] else "no contrast"
     elif any(s is not None for s in scores):
         result["status"] = "partial"
-    result["reasons"].append("Score is reduction in gyro vibration versus local trail; overall uses the weaker boundary. Candidate timing/count is unchanged.")
+    result["reasons"].append("Score is reduction in gyro vibration versus local trail; overall uses the weaker boundary. This score is a heuristic; see gyro_detection for any boundary/join changes.")
     return result
+
+
+def window_evidence(time, rough, left, right, settings, segment):
+    a, b = segment
+    dt = float(np.mean(np.diff(time[a:b])))
+    return evidence(time, rough, {"start_s": float(time[left]), "window_s": float(time[right] - time[left] + dt)}, settings, segment)
+
+
+def can_bridge(time, clean, rough, previous, current, settings, segment):
+    """Join only a low-load interruption with usable quiet gyro across it."""
+    if settings.gyro_detection != "assist" or settings.gyro_evidence == "off":
+        return False
+    left, right = previous["left"], current["right"]
+    separation = time[current["left"]] - time[previous["right"]]
+    dt = float(np.mean(np.diff(time[segment[0]:segment[1]])))
+    if separation > settings.gyro_join_s + 1e-8 or time[right] - time[left] + dt > settings.max_window_s:
+        return False
+    a, b = previous["right"] + 1, current["left"]
+    if a >= b or not np.isfinite(rough[left:right + 1]).all():
+        return False
+    # Sustained full loading or a large filtered impact must not be erased.
+    if np.mean(clean[a:b]) > settings.gyro_bridge_g or np.max(clean[a:b]) >= settings.impact_g:
+        return False
+    e = window_evidence(time, rough, left, right, settings, segment)
+    if e["status"] != "supports":
+        return False
+    threshold = min(e["before_dps"], e["after_dps"]) * settings.gyro_ratio
+    return bool(np.all(rough[a:b] <= threshold))
+
+
+def refine_window(time, clean, raw, rough, window, settings, segment):
+    """Bounded quiet-run refinement; a qualifying acceleration core must remain."""
+    left, right = window["left"], window["right"]
+    if settings.gyro_detection != "assist" or settings.gyro_refine_s == 0:
+        return left, right, "acceleration timing"
+    e = window_evidence(time, rough, left, right, settings, segment)
+    if e["status"] != "supports" or not np.isfinite(rough[left:right + 1]).all():
+        return left, right, "acceleration timing: gyro contrast insufficient or unavailable"
+    threshold = min(e["before_dps"], e["after_dps"]) * settings.gyro_ratio
+    a = max(segment[0] + 1, int(np.searchsorted(time, time[left] - settings.gyro_refine_s)))
+    b = min(segment[1] - 1, int(np.searchsorted(time, time[right] + settings.gyro_refine_s, side="right")))
+    quiet = np.isfinite(rough[a:b]) & (rough[a:b] <= threshold)
+    edges = np.diff(np.r_[False, quiet, False].astype(int))
+    dt = float(np.mean(np.diff(time[segment[0]:segment[1]])))
+    choices = []
+    for first, last in zip(np.flatnonzero(edges == 1) + a, np.flatnonzero(edges == -1) + a - 1):
+        if time[first] > time[left] + settings.gyro_refine_s + 1e-8 or time[last] < time[right] - settings.gyro_refine_s - 1e-8:
+            continue
+        overlap = max(0., time[min(last, right)] - time[max(first, left)] + dt)
+        if overlap < max(settings.min_core_s, .5 * (time[right] - time[left] + dt)):
+            continue
+        # Only extend into unloading; gyro quietness alone cannot extend into ground contact.
+        new_left, new_right = left, right
+        if first >= left:
+            new_left = int(first)
+        else:
+            while new_left > first and clean[new_left - 1] < max(.8, settings.expand_g) and raw[new_left - 1] < settings.impact_g:
+                new_left -= 1
+        if last <= right:
+            new_right = int(last)
+        else:
+            while new_right < last and clean[new_right + 1] < max(.8, settings.expand_g) and raw[new_right + 1] < settings.impact_g:
+                new_right += 1
+        if new_left > new_right or time[new_right] - time[new_left] + dt > settings.max_window_s:
+            continue
+        # Retain a full acceleration core, not merely a quiet section of trail.
+        low = clean[new_left:new_right + 1] < settings.core_g
+        core_edges = np.diff(np.r_[False, low, False].astype(int))
+        starts = np.flatnonzero(core_edges == 1) + new_left
+        ends = np.flatnonzero(core_edges == -1) + new_left - 1
+        if not any(time[y] - time[x] + dt + 1e-8 >= settings.min_core_s for x, y in zip(starts, ends)):
+            continue
+        choices.append((overlap, new_left, new_right))
+    if not choices:
+        return left, right, "acceleration timing: no safe gyro refinement"
+    _, first, last = max(choices)
+    return first, last, "gyro refined timing" if (first, last) != (left, right) else "gyro agrees with acceleration timing"

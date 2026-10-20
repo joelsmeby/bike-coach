@@ -79,6 +79,55 @@ class AppTests(unittest.TestCase):
         self.assertEqual(settings.assumed_speed_mph, 36)
         self.assertAlmostEqual(result["events"][0]["distance_ft"], 27.456)
 
+    def test_collapse_table_restores_and_persists_without_losing_rows(self):
+        w = self.window
+        rows = w.event_table.rowCount()
+        w.show()
+        self.app.processEvents()
+        before = w.graph_scroll.viewport().height()
+        w.table_toggle.trigger()
+        self.app.processEvents()
+        self.assertTrue(w.tabs.isHidden())
+        self.assertEqual(w.table_toggle.text(), "Show jump table")
+        self.assertFalse(w.load_plot.isHidden())
+        self.assertFalse(w.gyro_plot.isHidden())
+        self.assertFalse(w.vibration_plot.isHidden())
+        self.assertGreater(w.graph_scroll.viewport().height(), before)
+        self.assertEqual(w.graph_scroll.verticalScrollBar().maximum(), 0)
+        path = Path(self.directory.name) / "collapsed.json"
+        self.assertTrue(w.write_session(path))
+        w.set_table_collapsed(False)
+        w.dirty = False
+        w.open_session(path=path)
+        self.assertTrue(w.tabs.isHidden())
+        self.assertTrue(w.table_toggle.isChecked())
+        w.table_toggle.trigger()
+        self.assertFalse(w.tabs.isHidden())
+        self.assertEqual(w.event_table.rowCount(), rows)
+        self.assertEqual(w.table_toggle.text(), "Hide jump table")
+
+    def test_gyro_motion_input_changes_detection_and_survives_save(self):
+        from test_gyro import GyroTests
+        from bike_workbench.analysis import Settings, analyze
+        w = self.window
+        r = GyroTests().split_flight()
+        w.install_ride(r, Settings(merge_gap_s=.1), analyze(r, Settings(merge_gap_s=.1)))
+        self.assertTrue(w.recalculate())
+        self.assertEqual(w.event_table.rowCount(), 1)
+        self.assertIn("gyro joined", w.event_table.item(0, 7).text())
+        w.controls["gyro_detection"].setCurrentIndex(w.controls["gyro_detection"].findData("off"))
+        w.timer.stop()
+        self.assertTrue(w.recalculate())
+        self.assertEqual(w.event_table.rowCount(), 2)
+        w.dirty = False
+        w.open_csv(path=self.csv)
+        w.controls["gyro_detection"].setCurrentIndex(w.controls["gyro_detection"].findData("off"))
+        w.timer.stop()
+        self.assertTrue(w.recalculate())
+        path = Path(self.directory.name) / "motion.json"
+        self.assertTrue(w.write_session(path))
+        self.assertEqual(read_session(path)[2].gyro_detection, "off")
+
     def test_jump_detail_centers_and_fits_selection_then_locks_zoom(self):
         import numpy as np
         from test_gyro import ride

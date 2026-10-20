@@ -84,6 +84,11 @@ class Workbench(W.QMainWindow):
             if shortcut:
                 action.setShortcut(shortcut)
             self.actions[name] = action
+        self.table_toggle = QtGui.QAction("Hide jump table", self)
+        self.addAction(self.table_toggle)
+        self.table_toggle.setCheckable(True)
+        self.table_toggle.setShortcut("Ctrl+Shift+J")
+        self.table_toggle.triggered.connect(self.set_table_collapsed)
         toolbar.addSeparator()
         help_action = toolbar.addAction("How to use")
         help_action.triggered.connect(self.show_help)
@@ -99,6 +104,9 @@ class Workbench(W.QMainWindow):
         header.addWidget(self.file_label, 1)
         self.count_label = W.QLabel("Offline · v" + __version__)
         header.addWidget(self.count_label)
+        table_button = W.QToolButton()
+        table_button.setDefaultAction(self.table_toggle)
+        header.addWidget(table_button)
         layout.addLayout(header)
         self.notice = W.QLabel("Candidate windows describe unloading, not verified wheel contact or airtime.")
         self.notice.setWordWrap(True)
@@ -188,6 +196,10 @@ class Workbench(W.QMainWindow):
         self.filter_note.setSizePolicy(W.QSizePolicy.Ignored, W.QSizePolicy.Preferred)
         f.addRow(self.filter_note)
         f = group("Jump candidates")
+        combo(f, "gyro_detection", "Motion input", [("Acceleration + gyro", "assist"), ("Acceleration only", "off")])
+        spin(f, "gyro_join_s", "Gyro join gap · s", 0., 1., .02)
+        spin(f, "gyro_refine_s", "Max gyro timing shift · s", 0., .5, .02)
+        spin(f, "gyro_bridge_g", "Gyro bridge mean ≤ g", .1, 1.5, .05)
         combo(f, "mode", "Detector", [("Low load + impact", "sequence"), ("Low load only", "threshold")])
         for args in [
             ("core_g", "Core below · g", .05, 1.0, .05),
@@ -207,7 +219,7 @@ class Workbench(W.QMainWindow):
         spin(f, "gyro_context_s", "Trail context · s", .1, 2., .05)
         spin(f, "gyro_ratio", "Flight/trail ratio ≤", .05, .95, .05)
         spin(f, "gyro_floor_dps", "Min. trail vibration · °/s", .1, 50., .5)
-        gyro_note = W.QLabel("Lower vibration during low load supports a jump. Score only: timing and counts stay unchanged. Pitch-only needs saved bike calibration. Hover a score for takeoff/landing evidence.")
+        gyro_note = W.QLabel("Lower vibration during low load supports a jump. Motion input controls whether gyro can refine timing/join windows or only report scores. Pitch-only needs saved bike calibration. Hover a score for takeoff/landing evidence.")
         gyro_note.setWordWrap(True)
         gyro_note.setMinimumWidth(0)
         gyro_note.setSizePolicy(W.QSizePolicy.Ignored, W.QSizePolicy.Preferred)
@@ -470,6 +482,7 @@ class Workbench(W.QMainWindow):
         self.apply_settings(settings)
         self.zoom_region.setBounds((0, float(result["time"][-1])))
         self.selection.setBounds((0, float(result["time"][-1])))
+        self.set_table_collapsed(False, mark=False)
         self.apply_chart_scales({})
         self.fix_vertical_scales()
         self.file_label.setText(ride.path.name)
@@ -531,6 +544,7 @@ class Workbench(W.QMainWindow):
                     self.selection.setRegion((candidate["start_s"], candidate["end_s"]))
             if self.auto_fit_jump.isChecked():
                 self.fit_jump_detail()
+            self.set_table_collapsed(saved.get("table_collapsed", False) is True, mark=False)
             self.dirty = False
             self.setWindowTitle("Bike Coach · Jump Workbench — " + ride.path.name)
             self.preferences.setValue("last_session", str(self.session_path))
@@ -641,6 +655,11 @@ class Workbench(W.QMainWindow):
                 values[-1] += " · shared impact"
             if e["joined_windows"] > 1:
                 values[-1] += f" · joined {e['joined_windows']} windows"
+            decision = e["gyro_detection"]
+            if decision["joined_gaps"]:
+                values[-1] += " · gyro joined"
+            if decision["timing"] == "gyro refined timing":
+                values[-1] += " · gyro timing"
             evidence = e["distance_evidence"]
             source = {"gps_horizontal_speed_integral": "GPS", "gps_approach_speed": "GPS approach", "assumed_constant_speed_x_candidate_window": "Assumed"}[e["distance_source"]]
             source_text = f"{settings.assumed_speed_mph:g} mph assumed" if source == "Assumed" else "GPS approach" if source == "GPS approach" else source + " · " + evidence["quality"]
@@ -657,6 +676,8 @@ class Workbench(W.QMainWindow):
                 item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m; {values[8]}\n"
                                 f"Fallback assumption: {settings.assumed_speed_mph:g} mph horizontal. Window: {e['window_s']:.3f} s; not verified airtime.\n"
                                 + speed_note + "\n" + "\n".join(evidence["reasons"]) if column in (4, 8) else str(value))
+                if column == 7:
+                    item.setToolTip(str(value) + "\n" + json.dumps(decision, indent=2))
                 if column == 9:
                     def display(number):
                         return "unavailable" if number is None else f"{number:.1f}"
@@ -673,13 +694,13 @@ class Workbench(W.QMainWindow):
         self.notice.setText(f"{len(t):,} samples · ~{r['sample_hz']:.1f} Hz · {r['gap_count']} gaps · "
                             f"{100 * clip.mean():.1f}% accel range flags · "
                             f"labeled jumps found {score['matched_jumps']}/{score['labeled_jumps']} · "
-                            f"* horizontal distance: see source per row; fallback {settings.assumed_speed_mph:g} mph; windows ≠ verified airtime")
+                            f"{'Accel + gyro' if settings.gyro_detection == 'assist' else 'Acceleration only'} · * horizontal distance: see source per row; fallback {settings.assumed_speed_mph:g} mph; windows ≠ verified airtime")
         diagnostics = [f"Source: {self.ride.path}", f"SHA-256: {self.ride.sha256}",
                        f"Algorithm: {ALGORITHM_VERSION}", f"Time span: {t[-1]:.3f} s", f"Estimated sample rate: {r['sample_hz']:.3f} Hz",
                        f"Reported output_Hz median: {self.ride.reported_hz}",
                        f"Assumed rails: ±{settings.accel_range_g:g} g / ±{settings.gyro_range_dps:g} °/s",
                        f"Gyro range flags: {np.count_nonzero(r['gyro_clipped']):,}",
-                       "", *r["warnings"], "", "GPS sampling and timing:", json.dumps(r["gps"], indent=2), "", "Gyro evidence by candidate:", json.dumps([e["gyro_evidence"] for e in r["events"]], indent=2), "", json.dumps(score, indent=2), "", json.dumps(asdict(settings), indent=2)]
+                       "", *r["warnings"], "", "GPS sampling and timing:", json.dumps(r["gps"], indent=2), "", "Gyro evidence by candidate:", json.dumps([{ "evidence": e["gyro_evidence"], "detection": e["gyro_detection"]} for e in r["events"]], indent=2), "", json.dumps(score, indent=2), "", json.dumps(asdict(settings), indent=2)]
         self.diagnostics.setPlainText("\n".join(diagnostics))
 
     def overview_changed(self):
@@ -749,6 +770,23 @@ class Workbench(W.QMainWindow):
         self.fix_vertical_scales()
         self.update_scale_note()
 
+    def set_table_collapsed(self, collapsed, mark=True):
+        self.table_toggle.blockSignals(True)
+        self.table_toggle.setChecked(collapsed)
+        self.table_toggle.setText("Show jump table" if collapsed else "Hide jump table")
+        self.table_toggle.blockSignals(False)
+        if collapsed and mark:
+            # Show all three data charts; omit only the compact ride overview.
+            self.gyro_focus.setChecked(False)
+        self.tabs.setVisible(not collapsed)
+        self.overview.setVisible(not collapsed and not self.gyro_focus.isChecked())
+        self.load_plot.setMinimumHeight(220 if collapsed else 230)
+        self.gyro_plot.setMinimumHeight(250 if collapsed else 300)
+        self.vibration_plot.setMinimumHeight(250 if collapsed else 280)
+        self.right_splitter.setSizes([max(800, self.height()), 0] if collapsed else [max(650, self.height() - 270), 200])
+        if mark:
+            self.mark_dirty()
+
     def time_view(self):
         return (self.gyro_plot if self.gyro_focus.isChecked() else self.load_plot).viewRange()[0]
 
@@ -758,7 +796,7 @@ class Workbench(W.QMainWindow):
         bounds = (self.gyro_plot if old_focus else self.load_plot).viewRange()[0]
         self.gyro_plot.setXLink(None if enabled else self.load_plot)
         self.vibration_plot.setXLink(self.gyro_plot if enabled else self.load_plot)
-        self.overview.setVisible(not enabled)
+        self.overview.setVisible(not enabled and not self.table_toggle.isChecked())
         self.load_plot.setVisible(not enabled)
         self.gyro_focus.setText("Show load + gyro charts" if enabled else "Gyro focus · hide load charts")
         self.tabs.setMaximumHeight(200 if enabled else 16777215)
@@ -970,6 +1008,7 @@ class Workbench(W.QMainWindow):
                 raise ValueError("Settings have not produced a valid analysis. Correct them before saving.")
             value = make_session(self.ride, settings, self.result, self.labels, self.snapshots,
                                  self.time_view(), self.notes.toPlainText(), path)
+            value["table_collapsed"] = self.table_toggle.isChecked()
             value["chart_scales"] = {key: widget.value() for key, widget in self.chart_controls.items()}
             value["chart_scales"]["fit_jump_on_select"] = self.auto_fit_jump.isChecked()
             value["chart_scales"]["gyro_focus"] = self.gyro_focus.isChecked()

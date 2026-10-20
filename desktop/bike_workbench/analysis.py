@@ -16,7 +16,7 @@ from scipy.signal import butter, sosfiltfilt
 
 from . import gps, gyro
 
-ALGORITHM_VERSION = "load-sequence/1.4.0"
+ALGORITHM_VERSION = "load-sequence/1.5.0"
 
 
 def algorithm_fingerprint():
@@ -45,6 +45,10 @@ class Settings:
     gps_max_gap_s: float = 1.5
     gps_max_age_s: float = 1.0
     gps_max_accuracy_m: float = 20.0
+    gyro_detection: str = "assist"
+    gyro_join_s: float = .35
+    gyro_refine_s: float = .12
+    gyro_bridge_g: float = 1.0
     gyro_evidence: str = "support"
     gyro_channel: str = "all"
     gyro_trend_s: float = .12
@@ -72,6 +76,8 @@ class Settings:
             raise ValueError("Cutoff and impact search must be positive; sample rate cannot be negative.")
         if min(self.accel_range_g, self.gyro_range_dps, self.impact_g) <= 0:
             raise ValueError("Sensor ranges and impact threshold must be positive.")
+        if self.gyro_detection not in {"assist", "off"} or min(self.gyro_join_s, self.gyro_refine_s) < 0 or self.gyro_bridge_g <= 0:
+            raise ValueError("Invalid gyro detection mode, timing limit or bridge load.")
         if self.gyro_evidence not in {"off", "support"} or self.gyro_channel not in {"all", "pitch"}:
             raise ValueError("Unknown gyro evidence mode/channel.")
         if min(self.gyro_trend_s, self.gyro_context_s, self.gyro_floor_dps) <= 0 or not 0 < self.gyro_ratio < 1:
@@ -246,7 +252,7 @@ def analyze(ride: Ride, settings: Settings):
             if windows and windows[-1]["left"] == left and windows[-1]["right"] == right:
                 windows[-1]["cores"].append(core)
                 continue
-            windows.append({"left": left, "right": right, "cores": [core], "parts": 1})
+            windows.append({"left": left, "right": right, "cores": [core], "parts": 1, "gyro_joins": 0})
 
         joined = []
         for window in windows:
@@ -269,12 +275,30 @@ def analyze(ride: Ride, settings: Settings):
                         previous["cores"].extend(window["cores"])
                         previous["parts"] += window["parts"]
                         continue
+            bridge_limit = min(end, int(np.searchsorted(time, time[window["right"]] + settings.impact_search_s, side="right")))
+            bridge_has_impact = settings.mode == "threshold" or np.any(raw[window["right"] + 1:bridge_limit] > settings.impact_g)
+            if joined and bridge_has_impact and gyro.can_bridge(time, clean, rough, joined[-1], window, settings, (start, end)):
+                previous = joined[-1]
+                previous["right"] = window["right"]
+                previous["cores"].extend(window["cores"])
+                previous["parts"] += window["parts"]
+                previous["gyro_joins"] += 1
+                continue
             joined.append(window)
 
         for window in joined:
-            left, right = window["left"], window["right"]
+            seed_left, seed_right = window["left"], window["right"]
+            left, right, timing_reason = gyro.refine_window(time, clean, raw, rough, window, settings, (start, end))
             limit = min(end, int(np.searchsorted(time, time[right] + settings.impact_search_s, side="right")))
             hits = np.flatnonzero(raw[right + 1:limit] > settings.impact_g)
+            if not len(hits) and settings.mode == "sequence" and (left, right) != (seed_left, seed_right):
+                # Do not silently remove an acceleration candidate just because a
+                # refinement moved its impact-search interval away from the hit.
+                seed_limit = min(end, int(np.searchsorted(time, time[seed_right] + settings.impact_search_s, side="right")))
+                seed_hits = np.flatnonzero(raw[seed_right + 1:seed_limit] > settings.impact_g)
+                if len(seed_hits):
+                    left, right, limit, hits = seed_left, seed_right, seed_limit, seed_hits
+                    timing_reason = "acceleration timing: gyro refinement would lose observed impact"
             impact_index = int(right + 1 + hits[0]) if len(hits) else None
             if settings.mode == "sequence" and impact_index is None:
                 continue
@@ -283,6 +307,11 @@ def analyze(ride: Ride, settings: Settings):
                 "start_s": float(time[left]), "end_s": float(time[right]),
                 "window_s": float(time[right] - time[left] + dt),
                 "cores": window["cores"], "joined_windows": window["parts"],
+                "gyro_detection": {"mode": settings.gyro_detection, "joined_gaps": window["gyro_joins"],
+                                   "timing": timing_reason, "acceleration_start_s": float(time[seed_left]),
+                                   "acceleration_end_s": float(time[seed_right]),
+                                   "start_shift_s": float(time[left] - time[seed_left]),
+                                   "end_shift_s": float(time[right] - time[seed_right])},
                 "impact_s": float(time[impact_index]) if impact_index is not None else None,
                 "impact_g": float(raw[impact_index]) if impact_index is not None else None,
                 "mean_g": float(raw[left:right + 1].mean()),
