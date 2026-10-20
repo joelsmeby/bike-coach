@@ -4,10 +4,18 @@ on:
   push:
     paths:
       - 'desktop/**'
+      - 'analysis-engine.mjs'
+      - 'analysis-engine.test.mjs'
+      - 'analyzer.html'
+      - 'scripts/check-analysis-parity.mjs'
       - '.github/workflows/desktop.yml'
   pull_request:
     paths:
       - 'desktop/**'
+      - 'analysis-engine.mjs'
+      - 'analysis-engine.test.mjs'
+      - 'analyzer.html'
+      - 'scripts/check-analysis-parity.mjs'
       - '.github/workflows/desktop.yml'
 
 jobs:
@@ -25,4 +33,9 @@ jobs:
           cache-dependency-path: desktop/requirements.txt
       - run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
       - run: python -m pip install -r desktop/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - run: python -m unittest discover -s desktop/tests -v
+      - run: node --test analysis-engine.test.mjs
+      - run: node scripts/check-analysis-parity.mjs

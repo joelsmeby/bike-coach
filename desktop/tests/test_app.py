@@ -79,6 +79,31 @@ class AppTests(unittest.TestCase):
         self.assertEqual(settings.assumed_speed_mph, 36)
         self.assertAlmostEqual(result["events"][0]["distance_ft"], 27.456)
 
+    def test_shared_height_and_web_settings_exchange(self):
+        import json
+        from dataclasses import asdict
+        from bike_workbench.analysis import Settings
+        from bike_workbench.shared_engine import call
+        w = self.window
+        defaults = call("metadata")
+        self.assertEqual(defaults["defaults"], asdict(Settings()))
+        imported = asdict(Settings(assumed_speed_mph=22, gyro_detection="off", filter="raw", core_g=.455, expand_g=.666))
+        source = Path(self.directory.name) / "web-settings.json"
+        source.write_text(json.dumps({"algorithm_version": defaults["version"], "settings": imported}))
+        with patch("bike_workbench.app.W.QFileDialog.getOpenFileName", return_value=(str(source), "")):
+            w.import_analysis_settings()
+        self.assertEqual(asdict(w.settings()), imported)
+        event = w.result["events"][0]
+        self.assertAlmostEqual(event["height_m"], 9.80665 * event["window_s"] ** 2 / 8)
+        self.assertEqual(w.event_table.item(0, 10).text(), f"{event['height_ft']:.1f}")
+        self.assertIn("equal takeoff/landing elevation", w.event_table.item(0, 10).toolTip())
+        destination = Path(self.directory.name) / "desktop-settings.json"
+        with patch("bike_workbench.app.W.QFileDialog.getSaveFileName", return_value=(str(destination), "")):
+            w.export_analysis_settings()
+        exported = json.loads(destination.read_text())
+        self.assertEqual(exported["settings"], imported)
+        self.assertEqual(exported["algorithm_version"], defaults["version"])
+
     def test_collapse_table_restores_and_persists_without_losing_rows(self):
         w = self.window
         rows = w.event_table.rowCount()

@@ -46,6 +46,7 @@
   body.native-shell #baud,body.native-shell #connectBtn,body.native-shell #disconnectBtn{display:none}
   body.native-shell header .sub{display:block}
 .legend{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}.legend .line-toggle{display:inline-flex;align-items:center;gap:5px;padding:4px 0;border:0;background:none;cursor:pointer}.line-toggle input[type="checkbox"]{width:auto;min-width:16px;min-height:16px;margin:0;accent-color:#60a5fa}
+.analysis-charts{display:grid;gap:14px}.analysis-charts canvas{height:280px!important}.smallrow label{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}#analysisControls input[type=number]{width:85px}#engineVersion{font-size:12px;color:var(--muted)}[hidden]{display:none!important}
 </style>
 </head>
 <body class="native-shell">
@@ -76,6 +77,7 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     <span id="sourceLabel">Source: —</span>
   </div>
 
+  <details id="recordingDetails"><summary>Recording details and extra view controls</summary>
   <div class="grid">
     <div class="card"><div class="k">Accel magnitude</div><div class="v" id="accMag">—</div></div>
     <div class="card"><div class="k">Gyro magnitude</div><div class="v" id="gyroMag">—</div></div>
@@ -106,23 +108,58 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     <p style="font-size:14px;color:var(--muted)">The bike profile establishes the sensor-to-bike directions and mounting angle. A trustworthy stationary segment at the start or end of a ride can refine that ride’s gyro offset automatically. Acceleration plots still include gravity.</p>
   </section>
 
-  <div class="row">
-    <section class="chartwrap"><div class="charthead"><h2 id="accTitle">Acceleration — Bike Frame</h2><div class="legend" id="accLegend">Forward / Left / Up — mg</div></div><canvas id="accChart"></canvas></section>
+  </details>
+  <section class="card" id="analysisControls" style="margin-bottom:14px">
+    <div class="charthead"><h2>Jump analysis</h2><span id="engineVersion"></span></div>
+    <div class="smallrow">
+      <label>Motion <select id="motionInput"><option value="assist">Acceleration + gyro</option><option value="off">Acceleration only</option></select></label>
+      <label>Filter <select id="jumpFilter"><option value="median">Median</option><option value="mean">Moving average</option><option value="raw">Raw</option><option value="butterworth">Butterworth</option></select></label>
+      <label>Samples <input id="filterSamples" type="number" min="1" max="501" step="2" value="3"></label>
+      <label>Core below g <input id="jumpCore" type="number" min="0.05" max="1" step="0.05" value="0.4"></label>
+      <label>Expand below g <input id="jumpExpand" type="number" min="0.05" max="1.5" step="0.05" value="0.6"></label>
+      <label>Min. window s <input id="jumpMin" type="number" min="0.02" max="2" step="0.02" value="0.12"></label>
+      <label>Fallback horizontal mph <input id="assumedSpeed" type="number" min="0" max="100" step="0.5" value="18"></label>
+    </div>
+    <div class="smallrow">
+      <label>Rotation ± °/s <input id="rotationScale" type="number" min="0.1" value="100" step="10"></label>
+      <label>Vibration max °/s <input id="vibrationScale" type="number" min="0.1" value="50" step="5"></label>
+      <button id="fitJumpView">Fit visible gyro once</button>
+      <button id="exportAnalysisSettings">Export settings</button><label class="filebtn">Import settings<input id="importAnalysisSettings" type="file" accept=".json" hidden></label>
+      <button id="toggleJumpTable" aria-expanded="true">Hide jump table</button>
+    </div>
+    <details><summary>Recording ranges and filter cutoff</summary><div class="smallrow">
+      <label>Sensor ranges <select id="sensorPreset"><option value="auto">Automatic recording assumption</option><option value="2">±2 g / ±250°/s</option><option value="16">±16 g / ±2000°/s</option><option value="custom">Imported/custom</option></select></label>
+      <label>Accel ± g <input id="sensorAccel" type="number" min="1" max="32" value="2"></label>
+      <label>Gyro ± °/s <input id="sensorGyro" type="number" min="125" max="4000" value="250"></label>
+      <label>Butterworth cutoff Hz <input id="filterCutoff" type="number" min="0.1" step="0.5" value="5"></label>
+    </div><p style="font-size:12px">Automatic ranges are an assumption based on recorded values; set the actual device ranges when known.</p></details>
+    <p id="rangeNotice" style="font-size:12px;color:var(--muted)">Gyro Y scales stay fixed while zooming.</p>
+    <p id="analysisNotice" role="status" style="color:var(--muted);font-size:13px">Shared desktop/web calculations. Candidate windows are not verified airtime.</p>
+  </section>
+  <div class="analysis-charts">
+    <section class="chartwrap"><div class="charthead"><h2>Raw / filtered load</h2><span>g · gray raw / teal filtered</span></div><canvas id="loadChart"></canvas></section>
     <section class="chartwrap"><div class="charthead"><h2 id="gyroTitle">Rotation — Bike Frame</h2><div class="legend" id="gyroLegend">Roll / Pitch / Yaw rate — °/s</div></div><canvas id="gyroChart"></canvas></section>
+    <section class="chartwrap"><div class="charthead"><h2>Gyro vibration</h2><span>°/s · lower is smoother</span></div><canvas id="vibrationChart"></canvas></section>
+  </div>
+  <details id="advancedSignals"><summary>More signals: acceleration axes, magnetometer and relative angle</summary><div class="row">
+    <section class="chartwrap"><div class="charthead"><h2 id="accTitle">Acceleration — Bike Frame</h2><div class="legend" id="accLegend">Forward / Left / Up — mg</div></div><canvas id="accChart"></canvas></section>
+
     <section class="chartwrap"><div class="charthead"><h2 id="magTitle">Magnetometer — Bike Frame</h2><div class="legend" id="magLegend">Forward / Left / Up — logged units</div></div><canvas id="magChart"></canvas></section>
     <section class="chartwrap"><div class="charthead"><h2>Integrated Relative Angle</h2><div class="legend" id="angleLegend">integral of yaw rate — degrees</div></div><canvas id="angleChart"></canvas></section>
   </div>
 
+  </details>
   <section class="card" id="jumpSection" style="margin-top:14px">
     <div class="charthead"><h2>Jump candidates</h2><div class="legend">Low acceleration followed by landing evidence · tap a row to zoom</div></div>
     <p id="jumpStatus" style="font-size:13px;color:var(--muted)">Open a ride to look for airborne intervals.</p>
     <div style="overflow:auto"><table>
-      <thead><tr><th>Flight time</th><th>Air time</th><th>Minimum g</th><th>Landing peak g</th><th>Roll</th><th>Pitch</th><th>Yaw net</th><th>Yaw traveled</th><th>Evidence</th></tr></thead>
-      <tbody id="jumpTable"><tr><td colspan="9">No ride loaded.</td></tr></tbody>
+      <thead><tr><th>Window</th><th>Duration</th><th>Height est. ft*</th><th>Distance est. ft*</th><th>Distance source</th><th>Impact g</th><th>Gyro support</th><th>Detection</th></tr></thead>
+      <tbody id="jumpTable"><tr><td colspan="8">No ride loaded.</td></tr></tbody>
     </table></div>
-    <p style="font-size:12px;color:var(--muted)">Rotation is integrated from the gyro during candidate flight. Yaw net is signed rotation at landing; yaw traveled sums the absolute rotation, including a whip and return. With a calibrated bike profile, roll, pitch and yaw are bike-relative; otherwise they are raw sensor axes. Air time alone cannot establish jump height or distance, and gyro drift makes these angles approximate. Review each candidate against the plots or video.</p>
+    <p style="font-size:12px;color:var(--muted)">* Height is a ballistic estimate from candidate duration, assuming equal takeoff/landing elevation. It is not measured jump height. Distance uses GPS horizontal speed when usable, otherwise recent approach speed or the displayed horizontal-speed assumption. Hover a row for evidence. Impact * flags the assumed sensor range within the event/search interval. Review against plots or video.</p>
   </section>
 
+  <details id="movementTools"><summary>Movement labels and training tools</summary>
   <section class="card" style="margin-top:14px">
     <div class="charthead"><h2>Automatically detected movement</h2><div class="legend">Early model trained from two guided rides</div></div>
     <p id="activityStatus" style="font-size:13px;color:var(--muted)">Open a ride to detect movement sections.</p>
@@ -166,8 +203,9 @@ if(navigator.userAgent.includes('BikeCoachNative')) document.body.classList.add(
     </div>
   </section>
 
+  </details>
   <div class="footer">
-    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The Bike Frame uses the selected bike profile copied into this ride. Automatic movement labels are an early model trained from two guided rides; collect independently labeled rides before relying on them as coaching results. Ctrl + mouse wheel zooms only the time axis; Y-axis limits stay fixed to the full loaded dataset.
+    Use Download a ride to receive a recording over Bluetooth in Bluefy. Open Log also accepts saved BIN, CSV and TXT recordings. Use Zoom in / Zoom out and drag a chart sideways to explore your ride. The Bike Frame uses the selected bike profile copied into this ride. Automatic movement labels are an early model trained from two guided rides; collect independently labeled rides before relying on them as coaching results. Ctrl + mouse wheel zooms only the time axis; Load uses full-recording bounds; gyro Y-axis limits stay at the displayed fixed values.
   </div>
 </main>
 
@@ -179,7 +217,7 @@ import {classifyActivityWindow,activityLabel} from "./activity-detector.mjs?v=1"
 import {MOVEMENT_LABELS,cleanRideLabels,compareRideLabels,labelFile} from "./ride-labels.mjs?v=1";
 import {trainingLabelsFromCsv} from "./guided-training.mjs?v=1";
 import {buildTrainingPackage,trainingPackageName} from "./training-package.mjs?v=1";
-import {analyzeJumps} from "./jump-analysis.mjs?v=1";
+import {ENGINE_VERSION,DEFAULT_SETTINGS,parseRide,analyzeRide,recordingDefaults,settings as validateAnalysisSettings} from "./analysis-engine.mjs?v=2";
 import {includeZero,tickDecimals} from "./chart-scale.mjs?v=1";
 import {gpsFromCsv,bindGps,withGps} from './gps.mjs?v=2';
 import {renderGpsRoute} from './gps-route.mjs?v=3';
@@ -210,7 +248,7 @@ let viewStartTs=null, viewEndTs=null, dragging=null;
 const MAX_KEEP=120000;
 
 const $=id=>document.getElementById(id);
-const lineVisibility={accChart:[true,true,true],gyroChart:[true,true,true],magChart:[true,true,true],angleChart:[true]};
+const lineVisibility={loadChart:[true,true],vibrationChart:[true],accChart:[true,true,true],gyroChart:[true,true,true],magChart:[true,true,true],angleChart:[true]};
 const lineColors=["#60a5fa","#f59e0b","#34d399","#f472b6"];
 function lineControls(legendId,canvasId,names,unit){
  const legend=$(legendId);legend.replaceChildren();
@@ -222,7 +260,7 @@ function lineControls(legendId,canvasId,names,unit){
  });
  const units=document.createElement('span');units.textContent=unit;legend.append(units);
 }
-const canvases={acc:$("accChart"),gyro:$("gyroChart"),mag:$("magChart"),angle:$("angleChart")};
+const canvases={load:$("loadChart"),vibration:$("vibrationChart"),acc:$("accChart"),gyro:$("gyroChart"),mag:$("magChart"),angle:$("angleChart")};
 
 function setStatus(text,on=false){$("status").textContent=text;$("dot").className="dot"+(on?" on":"")}
 function parseTime(dateStr,timeStr){
@@ -315,6 +353,16 @@ function loadText(text,name,attached=null,attachedLabels=null,attachedGps=null){
     const s=parseRow(line);
     if(s)addSample(s,false); else rejected++;
   }
+  try{
+    analysisRide=parseRide(rideGps?withGps(text,rideGps):text);
+    if($("sensorPreset").value==='auto'){
+      const defaults=recordingDefaults(analysisRide);analysisSettings.accel_range_g=defaults.accel_range_g;analysisSettings.gyro_range_dps=defaults.gyro_range_dps;applySettingsControls();
+    }
+    if(attached&&!Object.keys(analysisRide.calibration||{}).length)analysisRide.calibration=attached;
+    const old=samples;
+    samples=analysisRide.time.map((t,i)=>Object.assign({mX:NaN,mY:NaN,mZ:NaN,imu_degC:NaN,output_Hz:analysisRide.reported_hz||50,angle:0},old[i]||{},
+      {ts:t,aX:analysisRide.accel[i][0]*1000,aY:analysisRide.accel[i][1]*1000,aZ:analysisRide.accel[i][2]*1000,gX:analysisRide.gyro[i][0],gY:analysisRide.gyro[i][1],gZ:analysisRide.gyro[i][2]}));
+  }catch(error){analysisRide=null;analysisResult=null;$("analysisNotice").textContent='Shared importer: '+error.message;}
   calibrateRide(attached||csvCalibration(text));
   recomputeAngles();
   source=name; $("sourceLabel").textContent="Source: "+name;
@@ -324,7 +372,7 @@ function loadText(text,name,attached=null,attachedLabels=null,attachedGps=null){
     renderSegmentTable();
     renderActivityDetection();
     loadRideLabels(attachedLabels||trainingLabelsFromCsv(text));
-    renderJumps();
+    runSharedAnalysis();
   }else{
     setStatus("No valid Artemis rows found");
     renderActivityDetection();
@@ -340,23 +388,64 @@ window.bikeCoachNativeLoadLog=function(payload){
   const dot=$("dot"); if(dot) dot.classList.add("on");
 };
 
-function clearData(){rideGps=null;rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];loadedRideText="";angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels();renderJumps()}
-function renderJumps(){
-  renderGpsRoute($("gpsRoute"),rideGps,samples.length>=3?analyzeJumps(samples,{calibrated:!!rideCalibration?.ok}):[],Number(samples[0]?.elapsed_ms)||0,jump=>{
-    if(!samples.length)return;viewStartTs=samples[0].ts+jump.start-2;viewEndTs=samples[0].ts+jump.end+2;$("accChart").scrollIntoView({block:'center'});
-  });
-  const table=$("jumpTable"), status=$("jumpStatus");
-  if(samples.length<3){status.textContent="Open a ride to look for airborne intervals.";table.innerHTML='<tr><td colspan="9">No ride loaded.</td></tr>';return;}
-  const jumps=analyzeJumps(samples,{calibrated:!!rideCalibration?.ok});
-  table.innerHTML=jumps.map(j=>`<tr data-jump-start="${j.start}" data-jump-end="${j.end}" style="cursor:pointer"><td>${j.start.toFixed(2)}–${j.end.toFixed(2)} s</td><td>${j.duration.toFixed(2)} s</td><td>${j.minG.toFixed(2)}</td><td>${j.landingG.toFixed(2)}</td><td>${j.rotation.roll.toFixed(1)}°</td><td>${j.rotation.pitch.toFixed(1)}°</td><td>${j.rotation.yaw.toFixed(1)}°</td><td>${j.rotationTravel.yaw.toFixed(1)}°</td><td>${j.confidence}</td></tr>`).join("")||'<tr><td colspan="9">No jump candidates found. This does not rule out jumps in the ride.</td></tr>';
-  status.textContent=`${jumps.length} candidate${jumps.length===1?'':'s'} found. Low-g threshold: 0.45 g, minimum air time: 0.12 s. Impacts and rough trail may create false positives.`;
+function clearData(){analysisRide=null;analysisResult=null;rideGps=null;rideCalibration=null;$("calibrationStatus").textContent="Open a ride to view its saved bike profile.";samples=[];liveRows=[];loadedRideText="";angleOffset=0;viewStartTs=null;viewEndTs=null;detectedActivitySections=[];correctedRideLabels=[];$("knownTestSection").hidden=true;$("testControls").hidden=true;$("useKnownLabels").hidden=true;$("saveBtn").disabled=true;source=port?"Live USB serial":"—";$("sourceLabel").textContent="Source: "+source;renderActivityDetection();renderRideLabels();renderJumps()}
+let analysisRide=null,analysisResult=null,analysisSettings=Object.assign({},DEFAULT_SETTINGS);
+const controlSettings={motionInput:'gyro_detection',jumpFilter:'filter',filterSamples:'window_samples',jumpCore:'core_g',jumpExpand:'expand_g',jumpMin:'min_core_s',assumedSpeed:'assumed_speed_mph',sensorAccel:'accel_range_g',sensorGyro:'gyro_range_dps',filterCutoff:'cutoff_hz'};
+$("engineVersion").textContent=ENGINE_VERSION;
+try{const saved=localStorage.getItem('bikecoach.analysis.settings');if(saved)analysisSettings=validateAnalysisSettings(JSON.parse(saved));const preset=localStorage.getItem('bikecoach.analysis.sensorPreset');if(['auto','2','16','custom'].includes(preset))$('sensorPreset').value=preset;}catch(error){/* Invalid/old preferences cannot replace defaults. */}
+function applySettingsControls(){for(const [id,key] of Object.entries(controlSettings))$(id).value=analysisSettings[key];}
+function runSharedAnalysis(){
+  if(!analysisRide){analysisResult=null;renderJumps();return;}
+  try{
+    analysisResult=analyzeRide(analysisRide,analysisSettings);
+    try{localStorage.setItem('bikecoach.analysis.settings',JSON.stringify(analysisSettings));localStorage.setItem('bikecoach.analysis.sensorPreset',$('sensorPreset').value);}catch(error){}
+    let segment=0;for(let i=0;i<samples.length;i++){if(i&&analysisResult.time[i]-analysisResult.time[i-1]>analysisSettings.gap_s)segment++;samples[i].analysisSegment=segment;samples[i].analysisRaw=analysisResult.raw[i];samples[i].analysisFiltered=analysisResult.filtered[i];samples[i].vibration=analysisResult.gyro_vibration[i];if(analysisResult.gyro_frame==='bike'){[samples[i].rollRate,samples[i].pitchRate,samples[i].yawRate]=analysisResult.gyro_rates[i];}}
+    $("analysisNotice").textContent=ENGINE_VERSION+' · '+(analysisSettings.gyro_detection==='assist'?'Gyro affects timing and joins. ':'Acceleration-only detection. ')+`Ranges assumed ±${analysisSettings.accel_range_g} g / ±${analysisSettings.gyro_range_dps}°/s. `+analysisResult.warnings.join(' ');
+    renderJumps();
+  }catch(error){analysisResult=null;$("analysisNotice").textContent='Analysis failed: '+error.message;renderJumps();}
 }
+function renderJumps(){
+  const table=$("jumpTable"),status=$("jumpStatus"),jumps=analysisResult?.events||[];
+  renderGpsRoute($("gpsRoute"),rideGps,jumps.map(e=>({start:e.start_s,end:e.end_s})),Number(samples[0]?.elapsed_ms)||0,jump=>{
+    if(!samples.length)return;viewStartTs=samples[0].ts+jump.start-2;viewEndTs=samples[0].ts+jump.end+2;$("loadChart").scrollIntoView({block:'center'});
+  });
+  table.replaceChildren();
+  for(const e of jumps){
+    const tr=document.createElement('tr');tr.dataset.jumpStart=e.start_s;tr.dataset.jumpEnd=e.end_s;tr.style.cursor='pointer';
+    const d=e.distance_evidence,g=e.gyro_evidence,decision=e.gyro_detection;
+    const source=d.quality==='assumed'?`${e.assumed_speed_mph} mph assumed`:d.source==='gps_approach_speed'?'GPS approach':`GPS · ${d.quality}`;
+    const values=[`${e.start_s.toFixed(2)}–${e.end_s.toFixed(2)} s`,e.window_s.toFixed(3),e.height_ft.toFixed(1),e.distance_ft.toFixed(1),source,e.impact_g==null?'—':e.impact_g.toFixed(2)+(e.clipped?' *':''),g.support_score==null?g.status:`${g.support_score.toFixed(0)} · ${g.status}`,decision.joined_gaps?'gyro joined':decision.timing];
+    for(const v of values){const td=document.createElement('td');td.textContent=v;tr.append(td);}
+    tr.title=e.height_assumption+'\n'+d.reasons.join(' ')+'\n'+JSON.stringify(decision)+'\nGyro support is not a jump probability.';
+    table.append(tr);
+  }
+  if(!jumps.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=8;td.textContent=analysisResult?'No candidates found. This does not rule out jumps.':'Open a valid saved ride to analyze jumps.';tr.append(td);table.append(tr);}
+  status.textContent=`${jumps.length} candidates · ${ENGINE_VERSION} · estimates need review`;
+}
+for(const [id,key] of Object.entries(controlSettings))$(id).onchange=()=>{
+ try{const next=Object.assign({},analysisSettings,{[key]:['gyro_detection','filter'].includes(key)?$(id).value:Number($(id).value)});analysisSettings=validateAnalysisSettings(next);if(key==='accel_range_g'||key==='gyro_range_dps')$('sensorPreset').value='custom';runSharedAnalysis();}
+ catch(error){$("analysisNotice").textContent=error.message;applySettingsControls();}
+};
+$("sensorPreset").onchange=()=>{
+ const preset=$("sensorPreset").value;
+ if(preset==='auto'&&analysisRide){const d=recordingDefaults(analysisRide);analysisSettings.accel_range_g=d.accel_range_g;analysisSettings.gyro_range_dps=d.gyro_range_dps;}
+ else if(preset==='2'||preset==='16'){analysisSettings.accel_range_g=Number(preset);analysisSettings.gyro_range_dps=preset==='2'?250:2000;}
+ applySettingsControls();runSharedAnalysis();
+};
+$("toggleJumpTable").onclick=()=>{const hidden=!$("jumpSection").hidden;$("jumpSection").hidden=hidden;$("toggleJumpTable").textContent=hidden?'Show jump table':'Hide jump table';$("toggleJumpTable").setAttribute('aria-expanded',String(!hidden));};
+$("fitJumpView").onclick=()=>{
+ const d=visibleData();const axes=$("coordFrame").value==='bike'?['rollRate','pitchRate','yawRate']:['gX','gY','gZ'];
+ let rotation=.1,vibration=.1;for(const p of d){for(const k of axes)if(Number.isFinite(p[k]))rotation=Math.max(rotation,Math.abs(p[k])*1.1);if(Number.isFinite(p.vibration))vibration=Math.max(vibration,p.vibration*1.1);}
+ $("rotationScale").value=rotation.toFixed(1);$("vibrationScale").value=vibration.toFixed(1);
+};
+$("exportAnalysisSettings").onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({algorithm_version:ENGINE_VERSION,settings:analysisSettings},null,2)],{type:'application/json'}));a.download='bike-analysis-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+$("importAnalysisSettings").onchange=async event=>{try{const value=JSON.parse(await event.target.files[0].text());analysisSettings=validateAnalysisSettings(value.settings||value);$("sensorPreset").value="custom";applySettingsControls();runSharedAnalysis();}catch(error){$("analysisNotice").textContent='Settings not imported: '+error.message;}event.target.value='';};
 $("jumpTable").onclick=event=>{
   const row=event.target.closest('tr[data-jump-start]');if(!row||!samples.length)return;
   const first=samples[0].ts,last=samples.at(-1).ts;
   viewStartTs=Math.max(first,first+Number(row.dataset.jumpStart)-2);
   viewEndTs=Math.min(last,first+Number(row.dataset.jumpEnd)+2);
-  $("jumpSection").scrollIntoView({block:'nearest'});
+  $("loadChart").scrollIntoView({block:'start'});
 };
 $('exportGpsRide').onclick=async()=>{
  if(!loadedRideText){$('gpsExportStatus').textContent='Open a ride first.';return;}
@@ -539,7 +628,7 @@ function niceStep(range,targetTicks=6){
 function decimateForDisplay(data,maxPoints=2200){
   if(data.length<=maxPoints)return data;
   const step=Math.ceil(data.length/maxPoints), out=[];
-  for(let i=0;i<data.length;i+=step)out.push(data[i]);
+  for(let i=0;i<data.length;i++){if(i%step===0||(i>0&&Number.isFinite(data[i-1].vibration)&&!Number.isFinite(data[i].vibration)))out.push(data[i]);}
   if(out[out.length-1]!==data[data.length-1])out.push(data[data.length-1]);
   return out;
 }
@@ -553,12 +642,12 @@ function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
   const scaleData=minMaxOverride?data:decimateForDisplay(samples,4000);
   for(const ser of series)for(const p of scaleData){const v=ser.get(p);if(Number.isFinite(v)){ymin=Math.min(ymin,v);ymax=Math.max(ymax,v)}}
   if(minMaxOverride){ymin=minMaxOverride[0];ymax=minMaxOverride[1]}
-  [ymin,ymax]=includeZero(ymin,ymax);
+  if(!minMaxOverride)[ymin,ymax]=includeZero(ymin,ymax);
   if(!Number.isFinite(ymin)||!Number.isFinite(ymax)){ymin=-1;ymax=1}
   if(ymin===ymax){ymin-=1;ymax+=1}
   const range=ymax-ymin,step=niceStep(range*1.16,6);
-  ymin=Math.floor((ymin-range*.08)/step)*step;
-  ymax=Math.ceil((ymax+range*.08)/step)*step;
+  if(!minMaxOverride){ymin=Math.floor((ymin-range*.08)/step)*step;
+  ymax=Math.ceil((ymax+range*.08)/step)*step;}
   const ty=v=>pad.t+(ymax-v)/(ymax-ymin)*ph;
   ctx.strokeStyle="#2b3240";ctx.lineWidth=1*dpr;ctx.fillStyle="#8c97a6";ctx.font=`${11*dpr}px system-ui`;ctx.textAlign="right";
   const decimals=tickDecimals(step);
@@ -586,9 +675,11 @@ function drawChart(canvas, series, data, minMaxOverride=null, yLabel=""){
   const rideStart=samples[0].ts,timeDecimals=tickDecimals(dt/4);
   ctx.textAlign="center";for(let i=0;i<5;i++){const x=pad.l+pw*i/4;ctx.fillText((t0-rideStart+dt*i/4).toFixed(Math.min(3,Math.max(1,timeDecimals)))+"s",x,h-8*dpr)}
   const cols=lineColors;
-  series.forEach((s,si)=>{if(!lineVisibility[canvas.id][si])return;ctx.strokeStyle=cols[si%cols.length];ctx.lineWidth=1.5*dpr;ctx.beginPath();let started=false;
-    data.forEach(p=>{let v=s.get(p);if(!Number.isFinite(v))return;let x=pad.l+(p.ts-t0)/dt*pw,y=pad.t+(ymax-v)/(ymax-ymin)*ph;if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y)});ctx.stroke();
+  ctx.save();ctx.beginPath();ctx.rect(pad.l,pad.t,pw,ph);ctx.clip();
+  series.forEach((s,si)=>{if(!lineVisibility[canvas.id][si])return;ctx.strokeStyle=s.color||cols[si%cols.length];ctx.lineWidth=1.5*dpr;ctx.beginPath();let started=false,lastSegment=null;
+    data.forEach(p=>{let v=s.get(p);if(!Number.isFinite(v)){started=false;return;}if(started&&p.analysisSegment!==lastSegment)started=false;lastSegment=p.analysisSegment;let x=pad.l+(p.ts-t0)/dt*pw,y=pad.t+(ymax-v)/(ymax-ymin)*ph;if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y)});ctx.stroke();
   });
+  ctx.restore();
   if(lineVisibility[canvas.id].every(visible=>!visible)){
     ctx.fillStyle="#aeb7c4";ctx.textAlign="center";ctx.fillText("All lines hidden",pad.l+pw/2,pad.t+20*dpr);
   }
@@ -618,13 +709,21 @@ function update(){
     $("temp").textContent=last.imu_degC.toFixed(1)+" °C";
   } else {$("rate").textContent="—";["accMag","gyroMag","angle","temp"].forEach(id=>$(id).textContent="—")}
   const bike=$("coordFrame").value==="bike";
+  let loadMax=1;for(const p of samples)if(Number.isFinite(p.analysisRaw))loadMax=Math.max(loadMax,p.analysisRaw*1.08);
+  drawChart(canvases.load,[{get:p=>p.analysisRaw,color:'#69798d'},{get:p=>p.analysisFiltered,color:'#70d5d0'}],d,[0,loadMax],"Load (g)");
+  drawChart(canvases.vibration,[{get:p=>p.vibration,color:'#f5e39e'}],d,[0,Math.max(.1,Number($("vibrationScale").value)||50)],"Vibration (°/s)");
+  const rotationBound=Math.max(.1,Number($("rotationScale").value)||100);
+  const vibrationBound=Math.max(.1,Number($("vibrationScale").value)||50),axes=bike?['rollRate','pitchRate','yawRate']:['gX','gY','gZ'];
+  const rateCropped=d.filter(p=>axes.some(k=>Number.isFinite(p[k])&&Math.abs(p[k])>rotationBound)).length,vibrationCropped=d.filter(p=>Number.isFinite(p.vibration)&&p.vibration>vibrationBound).length;
+  const rangeMessage=rateCropped||vibrationCropped?`View crops ${rateCropped} rotation / ${vibrationCropped} vibration samples. Fit visible gyro once to show peaks; source values stay intact.`:'Gyro Y scales stay fixed while zooming.';
+  if($("rangeNotice").textContent!==rangeMessage)$("rangeNotice").textContent=rangeMessage;
   if(bike){
     drawChart(canvases.acc,[{get:p=>p.aForward},{get:p=>p.aLeft},{get:p=>p.aUp}],d,null,"Bike acceleration (mg)");
-    drawChart(canvases.gyro,[{get:p=>p.rollRate},{get:p=>p.pitchRate},{get:p=>p.yawRate}],d,null,"Bike rotation rate (°/s)");
+    drawChart(canvases.gyro,[{get:p=>p.rollRate},{get:p=>p.pitchRate},{get:p=>p.yawRate}],d,[-rotationBound,rotationBound],"Bike rotation rate (°/s)");
     drawChart(canvases.mag,[{get:p=>p.mForward},{get:p=>p.mLeft},{get:p=>p.mUp}],d,null,"Bike magnetometer");
   }else{
     drawChart(canvases.acc,[{get:p=>p.aX},{get:p=>p.aY},{get:p=>p.aZ}],d,null,"Raw acceleration (mg)");
-    drawChart(canvases.gyro,[{get:p=>p.gX},{get:p=>p.gY},{get:p=>p.gZ}],d,null,"Raw angular rate (°/s)");
+    drawChart(canvases.gyro,[{get:p=>p.gX},{get:p=>p.gY},{get:p=>p.gZ}],d,[-rotationBound,rotationBound],"Raw angular rate (°/s)");
     drawChart(canvases.mag,[{get:p=>p.mX},{get:p=>p.mY},{get:p=>p.mZ}],d,null,"Raw magnetometer");
   }
   drawChart(canvases.angle,[{get:p=>p.angle-angleOffset}],d,null,"Relative angle (°)");
@@ -717,6 +816,7 @@ Object.values(canvases).forEach(c=>{
 window.addEventListener("mousemove",movePan);
 window.addEventListener("mouseup",endPan);
 
+applySettingsControls();
 refreshFrameLabels();
 window.addEventListener("beforeunload",()=>{if(port)disconnectSerial()});
 requestAnimationFrame(update);
@@ -729,7 +829,7 @@ document.getElementById('showLabels').checked=false;
 if(new URLSearchParams(location.search).has('latest')){try{const r=await rideStore();if(r){loadText(r.csv,r.name,r.calibration,r.trainingLabels,r.gps);}else setStatus('No downloaded ride yet. Return to Download a ride.');}catch(e){setStatus('Could not open saved ride: '+e.message);}}
 const nav=document.createElement('div');nav.className='smallrow';nav.style.margin='12px 0';
 for(const [label,factor] of [['Zoom in',0.5],['Zoom out',2]]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{if(samples.length<2)return;const d=visibleData(),first=samples[0].ts,last=samples.at(-1).ts,span=Math.min(last-first,Math.max(.2,(d.at(-1).ts-d[0].ts)*factor)),mid=(d.at(-1).ts+d[0].ts)/2;viewStartTs=Math.max(first,Math.min(last-span,mid-span/2));viewEndTs=viewStartTs+span;};nav.append(b);}
-document.querySelector('.row').before(nav);
+nav.append($('fullLogBtn'));document.querySelector('.analysis-charts').before(nav);
 for(const c of Object.values(canvases)){c.addEventListener('touchstart',e=>{if(e.touches.length===1)startPan(c,e.touches[0]);},{passive:true});c.addEventListener('touchmove',e=>{if(dragging&&e.touches.length===1){const dx=Math.abs(e.touches[0].clientX-dragging.startX);if(dx>8){e.preventDefault();movePan(e.touches[0]);}}},{passive:false});c.addEventListener('touchend',endPan);c.addEventListener('touchcancel',endPan);}
 </script>
 </body>

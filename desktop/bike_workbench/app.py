@@ -6,6 +6,7 @@ import sys
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,7 @@ from PySide6 import QtCore, QtGui, QtWidgets as W
 
 from . import __version__
 from .catalog import Catalog
-from .gyro import bike_frame
+from .shared_engine import call
 from .analysis import Settings, analyze, evaluate, load_ride, ALGORITHM_VERSION, algorithm_fingerprint
 from .session import atomic_json, make_session, read_session
 
@@ -77,6 +78,8 @@ class Workbench(W.QMainWindow):
             ("save_as", "Save as…", "Ctrl+Shift+S", lambda: self.save(True)),
             ("baseline", "Save comparison run", "", self.capture_baseline),
             ("report", "Export review…", "", self.export_report),
+            ("import_settings", "Import settings…", "", self.import_analysis_settings),
+            ("export_settings", "Export settings…", "", self.export_analysis_settings),
             ("fit", "Full ride", "Ctrl+0", self.full_ride),
         ]:
             action = toolbar.addAction(text)
@@ -324,7 +327,8 @@ class Workbench(W.QMainWindow):
         self.selection_label = W.QLabel("Orange selection: —")
         candidate_bar.addWidget(self.selection_label, 1)
         cl.addLayout(candidate_bar)
-        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Est. ft*", "Impact · s", "Impact · g", "Review", "Distance source", "Gyro support"])
+        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Est. ft*", "Impact · s", "Impact · g", "Review", "Distance source", "Gyro support", "Est. height · ft*"])
+        self.event_table.horizontalHeaderItem(10).setToolTip("Estimated height from candidate duration; assumes ballistic flight and equal takeoff/landing elevation. Not measured height.")
         self.event_table.horizontalHeaderItem(9).setToolTip("0–100 vibration reduction versus surrounding trail. Supports requires both boundaries; not a jump probability. Hover each cell for details.")
         self.event_table.horizontalHeaderItem(4).setToolTip("Horizontal distance estimate over the candidate window. Source and quality are shown per row; hover for details. Candidate windows are not verified airtime.")
         self.event_table.itemSelectionChanged.connect(self.event_selected)
@@ -402,6 +406,15 @@ class Workbench(W.QMainWindow):
             if isinstance(widget, W.QComboBox):
                 widget.setCurrentIndex(widget.findData(value))
             else:
+                # Retain valid imported web settings instead of silently rounding
+                # or clamping them to the initial control's convenience range.
+                if isinstance(widget, W.QDoubleSpinBox):
+                    digits = max(0, -Decimal(str(value)).as_tuple().exponent)
+                    widget.setDecimals(max(widget.decimals(), min(323, digits)))
+                if isinstance(widget, W.QSpinBox):
+                    value = int(value)
+                widget.setMinimum(min(widget.minimum(), value))
+                widget.setMaximum(max(widget.maximum(), value))
                 widget.setValue(value)
         self.updating = False
         self.update_filter_controls()
@@ -453,10 +466,7 @@ class Workbench(W.QMainWindow):
             return
         try:
             ride = load_ride(path)
-            settings = Settings()
-            # Repeated rail values indicate an old ±2g export; otherwise don't infer range.
-            if not np.any(np.isclose(np.abs(ride.accel), 2, atol=.00015)):
-                settings.accel_range_g, settings.gyro_range_dps = 16, 2000
+            settings = Settings(**call("recordingDefaults", {"accel": ride.accel.tolist()}))
             result = analyze(ride, settings)
             self.install_ride(ride, settings, result)
             self.labels, self.snapshots, self.baseline = [], [], None
@@ -592,12 +602,11 @@ class Workbench(W.QMainWindow):
         breaks = np.r_[np.diff(t) <= settings.gap_s, True]
         for curve, values in [(self.raw_curve, r["raw"]), (self.clean_curve, r["filtered"]), (self.overview_curve, r["raw"])]:
             curve.setData(t, values, connect=breaks)
-        gyro = bike_frame(self.ride)
-        if gyro is not None:
+        gyro = r["gyro_rates"]
+        if r["gyro_frame"] == "bike":
             names = ["Roll · forward", "Pitch · left", "Yaw · up"]
             gyro_title = "Angular velocity · saved bike frame, gyro bias removed"
         else:
-            gyro = self.ride.gyro
             names, gyro_title = ["Device X", "Device Y", "Device Z"], "Angular velocity · device axes"
         self.gyro_plot.setTitle(gyro_title)
         legend = self.gyro_plot.plotItem.legend
@@ -667,6 +676,7 @@ class Workbench(W.QMainWindow):
             ge = e["gyro_evidence"]
             score_text = "—" if ge["support_score"] is None else f"{ge['support_score']:.0f}"
             values.append(score_text + " · " + ge["status"])
+            values.append(f"{e['height_ft']:.1f}")
             for column, value in enumerate(values):
                 item = W.QTableWidgetItem(str(value))
                 approach = evidence["approach_horizontal_mps"]
@@ -676,6 +686,8 @@ class Workbench(W.QMainWindow):
                 item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m; {values[8]}\n"
                                 f"Fallback assumption: {settings.assumed_speed_mph:g} mph horizontal. Window: {e['window_s']:.3f} s; not verified airtime.\n"
                                 + speed_note + "\n" + "\n".join(evidence["reasons"]) if column in (4, 8) else str(value))
+                if column == 10:
+                    item.setToolTip(f"{e['height_ft']:.1f} ft / {e['height_m']:.2f} m\n" + e["height_assumption"])
                 if column == 7:
                     item.setToolTip(str(value) + "\n" + json.dumps(decision, indent=2))
                 if column == 9:
@@ -814,9 +826,7 @@ class Workbench(W.QMainWindow):
     def update_scale_note(self):
         if not self.result:
             return
-        rates = bike_frame(self.ride)
-        if rates is None:
-            rates = self.ride.gyro
+        rates = self.result["gyro_rates"]
         rate_limit = self.chart_controls["gyro_half_span_dps"].value()
         vibration_limit = self.chart_controls["vibration_max_dps"].value()
         rate_out = np.count_nonzero(np.any(np.abs(rates - self.chart_controls["gyro_center_dps"].value()) > rate_limit, axis=1))
@@ -833,9 +843,7 @@ class Workbench(W.QMainWindow):
             mask = (t >= low) & (t <= high)
         if not mask.any():
             return
-        rates = bike_frame(self.ride)
-        if rates is None:
-            rates = self.ride.gyro
+        rates = self.result["gyro_rates"]
         rough = self.result["gyro_vibration"][mask]
         finite = rough[np.isfinite(rough)]
         # Round up to a tenth so the saved/displayed scale never crops its fitted peak.
@@ -855,9 +863,7 @@ class Workbench(W.QMainWindow):
         mask = (t >= start) & (t <= end)
         if not mask.any():
             return
-        rates = bike_frame(self.ride)
-        if rates is None:
-            rates = self.ride.gyro
+        rates = self.result["gyro_rates"]
         low, high = float(rates[mask].min()), float(rates[mask].max())
         center = round((low + high) / 2, 1)
         span = max(.1, float(np.ceil(max(high - center, center - low) * 1.1 * 10) / 10))
@@ -1036,6 +1042,38 @@ class Workbench(W.QMainWindow):
     def autosave(self):
         if self.session_path and self.dirty and not self.timer.isActive():
             self.write_session(self.session_path)
+
+    def import_analysis_settings(self):
+        path, _ = W.QFileDialog.getOpenFileName(self, "Import web/desktop analysis settings", "", "JSON (*.json)")
+        if not path:
+            return
+        previous = self.settings()
+        try:
+            value = json.loads(Path(path).read_text())
+            settings = Settings(**value.get("settings", value))
+            settings.validate()
+            if self.labels and self.result_settings and settings.uniform_hz != self.result_settings.uniform_hz:
+                raise ValueError("Timing cannot change after labels exist.")
+            self.apply_settings(settings)
+            if self.ride and not self.recalculate():
+                self.apply_settings(previous)
+                self.recalculate()
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            self.statusBar().showMessage("Settings not imported: " + str(exc))
+
+    def export_analysis_settings(self):
+        path, _ = W.QFileDialog.getSaveFileName(self, "Export settings for web/desktop", "bike-analysis-settings.json", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            if self.ride and Path(path).resolve() == self.ride.path:
+                raise ValueError("Settings cannot overwrite the recording.")
+            if self.session_path and Path(path).resolve() == self.session_path:
+                raise ValueError("Settings cannot overwrite the current session.")
+            atomic_json(path, {"algorithm_version": ALGORITHM_VERSION, "settings": asdict(self.settings())})
+            self.statusBar().showMessage("Analysis settings exported: " + str(path))
+        except (OSError, ValueError, TypeError) as exc:
+            self.statusBar().showMessage("Settings not exported: " + str(exc))
 
     def export_report(self):
         if not self.ride or not self.recalculate():

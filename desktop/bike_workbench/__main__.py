@@ -27,7 +27,8 @@ def main():
                 settings = Settings()
                 labels = []
             if args.settings:
-                settings = Settings(**json.loads(Path(args.settings).read_text()))
+                payload = json.loads(Path(args.settings).read_text())
+                settings = Settings(**payload.get("settings", payload))
             result = analyze(ride, settings)
             from dataclasses import asdict
             report = {"algorithm_version": ALGORITHM_VERSION, "analysis_sha256": algorithm_fingerprint(), "recording_sha256": ride.sha256,

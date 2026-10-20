@@ -31,11 +31,14 @@ try{
   window.bikeCoachNativeLoadLog({text:window.chartCsv,name:'chart-test.csv'});
  });
  await page.waitForFunction(()=>document.querySelector('#sampleCount').textContent==='3,001');
+ await page.locator('#advancedSignals summary').click();
+ await page.locator('#recordingDetails summary').click();
  const ticks=()=>page.evaluate(()=>window.chartFrames.accChart.labels.filter(s=>/^\d+(\.\d+)?s$/.test(s)).map(parseFloat));
  assert.deepEqual(await ticks(),[0,15,30,45,60]);
  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
  await page.waitForFunction(()=>parseFloat(document.querySelector('#windowLabel').textContent)<31);
  const zoomed=await ticks();assert(zoomed[0]>14&&zoomed.at(-1)<46);
+ await page.locator('#accChart').scrollIntoViewIfNeeded();
  const rect=await page.locator('#accChart').boundingBox(),x=rect.x+rect.width*.6,y=rect.y+rect.height*.5;
  await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x-rect.width*.2,y,{steps:10});await page.mouse.up();
  await page.waitForFunction(start=>parseFloat(window.chartFrames.accChart.labels.find(s=>/^\d+(\.\d+)?s$/.test(s)))>start+4,zoomed[0]);

@@ -186,14 +186,12 @@ class GyroTests(unittest.TestCase):
         self.assertEqual(new[0]["gyro_detection"]["joined_gaps"], 0)
 
     def test_refinement_cannot_remove_an_existing_impact_candidate(self):
-        from unittest.mock import patch
         r = ride()
         r.accel[np.isclose(r.time, 1.52), 2] = 1
-        r.accel[np.isclose(r.time, 1.78), 2] = 2.5
-        with patch("bike_workbench.analysis.gyro.refine_window", return_value=(50, 69, "gyro refined timing")):
-            event = analyze(r, Settings())["events"][0]
+        r.accel[np.isclose(r.time, 1.8), 2] = 2.5
+        event = analyze(r, Settings())["events"][0]
         self.assertAlmostEqual(event["end_s"], 1.5)
-        self.assertAlmostEqual(event["impact_s"], 1.78)
+        self.assertAlmostEqual(event["impact_s"], 1.8)
         self.assertIn("lose observed impact", event["gyro_detection"]["timing"])
 
     def test_invalid_gyro_settings_fail(self):

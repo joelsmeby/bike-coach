@@ -1,6 +1,6 @@
 # Bike Coach desktop jump workbench
 
-A native, local analysis app for developing jump detection against ride recordings. It runs independently of chat, the phone webpage, and the bike. There is no server or data upload. Version 0.4 is an analysis workbench, not a physically validated jump detector.
+A native, local analysis app for developing jump detection against ride recordings. It runs independently of chat, the phone webpage, and the bike. There is no server or data upload. Version 0.5 is an analysis workbench, not a physically validated jump detector.
 
 ## Open on Joel's Mac
 
@@ -28,7 +28,7 @@ If the recording moves, opening its session prompts you to locate the original. 
 - Dashed horizontal line: core threshold; dotted line: expansion threshold.
 - Triangles: first raw load crossing above the impact threshold within the search window. These are impact estimates, not proven first tire contact.
 - Crosses: samples at the assumed acceleration rail. An asterisk by impact g means at least one sample in the event/search interval was range-flagged, not necessarily that the displayed crossing itself clipped.
-- Window duration includes one nominal sample interval. It is an unloading estimate, not verified airtime. Height and takeoff angle are not inferred. Horizontal distance uses GPS speed when usable, with explicit fallbacks.
+- Window duration includes one nominal sample interval. It is an unloading estimate, not verified airtime. Takeoff angle is not inferred. Height is a clearly labeled equal-elevation ballistic estimate. Horizontal distance uses GPS speed when usable, with explicit fallbacks.
 - **Est. ft***: horizontal distance over the candidate window, not verified airborne distance. **Distance source** identifies GPS integration, GPS approach speed held constant, or the editable assumed horizontal speed (18 mph default). Hover for reasons and quality. Distance changes do not change detection. Horizontal speed needs no cosine correction; it already excludes vertical motion. Reported GPS speed is used directly, not calculated by differencing noisy coordinates.
 
 ## Analysis and timing
@@ -47,6 +47,12 @@ When calibration contains a valid orthonormal frame, gyro rates are projected on
 
 Label matching uses one-to-one interval overlap (IoU ≥ 0.1). Counts describe coverage of the examples you labeled. Unmatched detections are unreviewed, not proven false positives; this is not overall accuracy. A comparison across different clock assumptions is disabled.
 
+## Height and shared web/desktop calculations
+
+**Est. height · ft** is computed as `9.80665 × candidate_window_seconds² / 8`, converted to feet. It assumes ideal ballistic flight and equal takeoff/landing elevation; it is not measured height and can be misleading for step-downs/step-ups or uncertain candidate boundaries. Hover for the assumption. No takeoff angle is inferred. Distance remains horizontal and uses the same GPS evidence/fallback policy on both platforms.
+
+Both interfaces execute the same `analysis-engine.mjs`, including RTC reconstruction, filters, gyro decisions, GPS quality rules, height, distance and defaults. `analysis.py` and `gps.py` are adapters, not separate detector implementations. The automatic 2 g/250°/s versus 16 g/2000°/s recording assumption also comes from the shared engine; set actual ranges when known. Same original CSV, complete settings and engine version are required for equivalent results. The web UI exposes a small subset of controls but preserves imported advanced fields.
+
 ## Collapse the jump table
 
 The always-visible **Hide jump table / Show jump table** control at the upper right collapses/restores the entire bottom results panel (shortcut Cmd+Shift+J on macOS). Collapse shows load, rotation and vibration together, omits the small overview and allocates the freed height to those three data charts. Table rows, labels and notes remain intact. The collapsed state saves with the session.
@@ -63,7 +69,7 @@ Review cells flag **gyro joined** and **gyro timing**. Session/headless events s
 
 At the top of the sidebar, **Fixed gyro chart scales** sets the rotation half-range, rotation center and vibration maximum independently. **Fit Y when selecting a jump** defaults on: candidate selection fits the orange interval with headroom, then locks the Y axes during zoom/pan. This excludes larger surrounding trail peaks from the detail fit; the outside-view counts report cropped samples. Editing a scale disables automatic jump fitting so your manual range stays fixed. **Fit selected jump detail** repeats the fit explicitly. These are display ranges, separate from sensor clipping ranges. Zooming, panning, filtering and **Full ride** preserve the chosen vertical bounds. **Fit visible gyro once** fits both gyro plots to the current visible time interval with 10% headroom, then locks the resulting bounds; **Fit full recording once** fits the entire recording. The panel reports samples outside the chosen display ranges so a tight view cannot silently suggest those values are absent. Source values are retained.
 
-Chart ranges save/autosave with the session under `chart_scales`. Older sessions start with default view controls, then fit the selected jump when automatic jump fitting is enabled. The mode and rotation center are also saved with sessions. The vibration chart has its own positive Y axis so its smaller values remain visible beside larger rotation rates. Rotation and vibration charts have minimum heights of 300 and 280 pixels. The chart area scrolls vertically on smaller windows instead of compressing those charts. **Gyro focus** hides the load charts and reduces the table height so both gyro plots get more room; **Show load + gyro charts** restores the combined view. The app header shows v0.4.0 to identify this interface update. Save, fully quit and reopen the app to load new source; opening an already-running app again does not reload its Python modules.
+Chart ranges save/autosave with the session under `chart_scales`. Older sessions start with default view controls, then fit the selected jump when automatic jump fitting is enabled. The mode and rotation center are also saved with sessions. The vibration chart has its own positive Y axis so its smaller values remain visible beside larger rotation rates. Rotation and vibration charts have minimum heights of 300 and 280 pixels. The chart area scrolls vertically on smaller windows instead of compressing those charts. **Gyro focus** hides the load charts and reduces the table height so both gyro plots get more room; **Show load + gyro charts** restores the combined view. The app header shows v0.5.0 to identify this interface update. Save, fully quit and reopen the app to load new source; opening an already-running app again does not reload its Python modules.
 
 ## Gyro support for takeoff and landing
 
@@ -93,7 +99,7 @@ PYTHONPATH=desktop .local/desktop-venv/bin/python -m bike_workbench /path/to/ses
 PYTHONPATH=desktop .local/desktop-venv/bin/python -m bike_workbench /path/to/session.json --analyze --recording /new/path/to/original.csv
 ```
 
-`--settings /path/to/settings.json` uses a JSON object containing `Settings` fields; omitted fields take defaults. GUI sessions always recompute under current code. If the saved detector version differs, the GUI preserves the imported previous results in a comparison snapshot before saving.
+`--settings /path/to/settings.json` accepts raw settings or the web/desktop settings envelope; omitted fields take defaults. **Import settings** and **Export settings** in both interfaces exchange the same fields. Export from the desktop and import into the web analyzer to reproduce a saved experiment; source CSV and engine version must also match. Full desktop labels/catalog/session state is not transferred by a settings file. GUI sessions always recompute under current code. If the saved detector version differs, the GUI preserves the imported previous results in a comparison snapshot before saving.
 
 ## Verify
 
@@ -103,7 +109,7 @@ PYTHONPATH=desktop .local/desktop-venv/bin/python -m unittest discover -s deskto
 
 Tests cover signal filtering, candidate selection, no-impact intervals, gaps, clipping assumptions, repeated 250 Hz timestamps, date rollover, session fingerprint checking/relocation, labeling, comparison runs, save/reopen and invalid-setting protection. Fixtures are generated synthetic recordings, not personal rides. GUI checks use Qt's offscreen platform and do not establish physical riding accuracy.
 
-The app needs a running desktop session for normal use. Errors from the app launcher are logged under `.local/desktop-workbench.log`. Code lives in `bike_workbench/analysis.py`, `session.py` and `app.py`; the analysis engine has no GUI dependency and can be reused later.
+The app needs a running desktop session for normal use. Errors from the app launcher are logged under `.local/desktop-workbench.log`. `analysis-engine.mjs` at the repository root is the only production importer, filter, detector and metrics implementation. The desktop adapter executes it through the existing Qt JavaScript runtime; CLI/tests use an offscreen QApplication without a server or Node installation. Keep the shared root module with the checkout. See `docs/ANALYZER.md` for the shared contract and parity checks.
 
 ## Compare detection sensitivity
 
