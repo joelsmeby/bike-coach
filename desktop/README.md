@@ -1,6 +1,6 @@
 # Bike Coach desktop jump workbench
 
-A native, local analysis app for developing jump detection against ride recordings. It runs independently of chat, the phone webpage, and the bike. There is no server or data upload. Version 0.2 is an analysis workbench, not a physically validated jump detector.
+A native, local analysis app for developing jump detection against ride recordings. It runs independently of chat, the phone webpage, and the bike. There is no server or data upload. Version 0.3 is an analysis workbench, not a physically validated jump detector.
 
 ## Open on Joel's Mac
 
@@ -49,9 +49,9 @@ Label matching uses one-to-one interval overlap (IoU ≥ 0.1). Counts describe c
 
 ## Fixed gyro view ranges
 
-At the top of the sidebar, **Fixed gyro chart scales** sets the rotation half-range and vibration maximum independently. These are display ranges, separate from sensor clipping ranges. Zooming, panning, filtering and **Full ride** preserve the chosen vertical bounds. **Fit visible gyro once** fits both gyro plots to the current visible time interval with 10% headroom, then locks the resulting bounds; **Fit full recording once** fits the entire recording. The panel reports samples outside the chosen display ranges so a tight view cannot silently suggest those values are absent. Source values are retained.
+At the top of the sidebar, **Fixed gyro chart scales** sets the rotation half-range, rotation center and vibration maximum independently. **Fit Y when selecting a jump** defaults on: candidate selection fits the orange interval with headroom, then locks the Y axes during zoom/pan. This excludes larger surrounding trail peaks from the detail fit; the outside-view counts report cropped samples. Editing a scale disables automatic jump fitting so your manual range stays fixed. **Fit selected jump detail** repeats the fit explicitly. These are display ranges, separate from sensor clipping ranges. Zooming, panning, filtering and **Full ride** preserve the chosen vertical bounds. **Fit visible gyro once** fits both gyro plots to the current visible time interval with 10% headroom, then locks the resulting bounds; **Fit full recording once** fits the entire recording. The panel reports samples outside the chosen display ranges so a tight view cannot silently suggest those values are absent. Source values are retained.
 
-Chart ranges save/autosave with the session under `chart_scales`. Older sessions start at ±100°/s and 0–50°/s; use fit or enter different bounds when needed. The vibration chart has its own positive Y axis so its smaller values remain visible beside larger rotation rates. The app header shows v0.2.0 to identify this interface update. Save, fully quit and reopen the app to load new source; opening an already-running app again does not reload its Python modules.
+Chart ranges save/autosave with the session under `chart_scales`. Older sessions start with default view controls, then fit the selected jump when automatic jump fitting is enabled. The mode and rotation center are also saved with sessions. The vibration chart has its own positive Y axis so its smaller values remain visible beside larger rotation rates. Rotation and vibration charts have minimum heights of 300 and 280 pixels. The chart area scrolls vertically on smaller windows instead of compressing those charts. **Gyro focus** hides the load charts and reduces the table height so both gyro plots get more room; **Show load + gyro charts** restores the combined view. The app header shows v0.3.0 to identify this interface update. Save, fully quit and reopen the app to load new source; opening an already-running app again does not reload its Python modules.
 
 ## Gyro support for takeoff and landing
 

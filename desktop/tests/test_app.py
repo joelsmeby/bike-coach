@@ -79,6 +79,52 @@ class AppTests(unittest.TestCase):
         self.assertEqual(settings.assumed_speed_mph, 36)
         self.assertAlmostEqual(result["events"][0]["distance_ft"], 27.456)
 
+    def test_jump_detail_centers_and_fits_selection_then_locks_zoom(self):
+        import numpy as np
+        from test_gyro import ride
+        from bike_workbench.analysis import Settings, analyze
+        w = self.window
+        r = ride()
+        w.install_ride(r, Settings(), analyze(r, Settings()))
+        self.assertTrue(w.recalculate())
+        w.event_table.selectRow(0)
+        w.fit_jump_detail()
+        mask = (r.time >= 1) & (r.time <= 1.5)
+        bounds = tuple(w.gyro_plot.viewRange()[1])
+        self.assertLess(bounds[1] - bounds[0], 100)
+        self.assertLessEqual(bounds[0], r.gyro[mask].min())
+        self.assertGreaterEqual(bounds[1], r.gyro[mask].max())
+        self.assertLess(w.vibration_plot.viewRange()[1][1], 15)
+        w.load_plot.setXRange(.5, 2.5, padding=0)
+        self.assertEqual(tuple(w.gyro_plot.viewRange()[1]), bounds)
+        w.chart_controls["gyro_half_span_dps"].setValue(80)
+        self.assertFalse(w.auto_fit_jump.isChecked())
+
+    def test_tall_charts_scroll_and_gyro_focus_preserves_session(self):
+        w = self.window
+        w.show()
+        self.app.processEvents()
+        self.assertGreaterEqual(w.gyro_plot.height(), 300)
+        self.assertGreaterEqual(w.vibration_plot.height(), 280)
+        self.assertGreater(w.graph_scroll.verticalScrollBar().maximum(), 0)
+        w.load_plot.setXRange(1, 1.6, padding=0)
+        w.gyro_focus.setChecked(True)
+        self.app.processEvents()
+        self.assertAlmostEqual(w.time_view()[0], 1)
+        self.assertAlmostEqual(w.time_view()[1], 1.6)
+        self.assertTrue(w.load_plot.isHidden())
+        self.assertFalse(w.gyro_plot.isHidden())
+        w.chart_controls["gyro_center_dps"].setValue(25)
+        path = Path(self.directory.name) / "gyro-focus.json"
+        self.assertTrue(w.write_session(path))
+        w.gyro_focus.setChecked(False)
+        w.dirty = False
+        w.open_session(path=path)
+        self.assertTrue(w.gyro_focus.isChecked())
+        self.assertEqual(w.chart_controls["gyro_center_dps"].value(), 25)
+        w.gyro_focus.setChecked(False)
+        self.assertFalse(w.load_plot.isHidden())
+
     def test_separate_vibration_plot_and_fixed_gyro_scales_survive_navigation(self):
         w = self.window
         self.assertIsNot(w.vibration_curve.getViewBox(), w.gyro_plot.getViewBox())

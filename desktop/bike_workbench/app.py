@@ -147,9 +147,10 @@ class Workbench(W.QMainWindow):
 
         f = group("Fixed gyro chart scales")
         for key, label, default in [("gyro_half_span_dps", "Rotation ± · °/s", 100.),
-                                     ("vibration_max_dps", "Vibration max · °/s", 50.)]:
+                                     ("vibration_max_dps", "Vibration max · °/s", 50.),
+                                     ("gyro_center_dps", "Rotation center · °/s", 0.)]:
             control = W.QDoubleSpinBox()
-            control.setRange(.1, 10000.)
+            control.setRange(-10000. if key == "gyro_center_dps" else .1, 10000.)
             control.setDecimals(1)
             control.setSingleStep(10.)
             control.setValue(default)
@@ -160,6 +161,17 @@ class Workbench(W.QMainWindow):
             button = W.QPushButton(label)
             button.clicked.connect(lambda checked=False, v=visible: self.fit_gyro_scales(v))
             f.addRow(button)
+        detail = W.QPushButton("Fit selected jump detail")
+        detail.clicked.connect(self.fit_jump_detail)
+        f.addRow(detail)
+        self.auto_fit_jump = W.QCheckBox("Fit Y when selecting a jump")
+        self.auto_fit_jump.setChecked(True)
+        self.auto_fit_jump.toggled.connect(self.mark_dirty)
+        f.addRow(self.auto_fit_jump)
+        self.gyro_focus = W.QPushButton("Gyro focus · hide load charts")
+        self.gyro_focus.setCheckable(True)
+        self.gyro_focus.toggled.connect(self.set_gyro_focus)
+        f.addRow(self.gyro_focus)
         self.scale_note = W.QLabel("Scales stay fixed while zooming. Fit once or enter a range to inspect smaller signals.")
         self.scale_note.setWordWrap(True)
         self.scale_note.setMinimumWidth(0)
@@ -237,16 +249,20 @@ class Workbench(W.QMainWindow):
         scroll.setWidget(panel)
         split.addWidget(scroll)
         right = W.QSplitter(QtCore.Qt.Vertical)
+        self.right_splitter = right
         split.addWidget(right)
         graphs = W.QWidget()
         gl = W.QVBoxLayout(graphs)
         gl.setContentsMargins(4, 0, 0, 0)
         self.overview = self.new_plot("Full ride · drag selection to zoom", "Load", "g")
-        self.overview.setMaximumHeight(135)
+        self.overview.setFixedHeight(80)
         self.load_plot = self.new_plot("Raw / filtered load · drag orange handles to label an interval", "Load", "g")
         self.gyro_plot = self.new_plot("Angular velocity · device axes", "Rate", "°/s")
         self.vibration_plot = self.new_plot("Gyro vibration · lower is smoother", "Vibration", "°/s")
-        for plot, stretch in [(self.overview, 1), (self.load_plot, 3), (self.gyro_plot, 2), (self.vibration_plot, 2)]:
+        self.load_plot.setMinimumHeight(230)
+        self.gyro_plot.setMinimumHeight(300)
+        self.vibration_plot.setMinimumHeight(280)
+        for plot, stretch in [(self.overview, 0), (self.load_plot, 2), (self.gyro_plot, 3), (self.vibration_plot, 3)]:
             gl.addWidget(plot, stretch)
         self.gyro_plot.setXLink(self.load_plot)
         self.vibration_plot.setXLink(self.load_plot)
@@ -280,7 +296,10 @@ class Workbench(W.QMainWindow):
             plot.addItem(line, ignoreBounds=True)
             self.crosshairs.append(line)
         self.mouse_proxy = pg.SignalProxy(self.load_plot.scene().sigMouseMoved, rateLimit=30, slot=self.mouse_moved)
-        right.addWidget(graphs)
+        self.graph_scroll = W.QScrollArea()
+        self.graph_scroll.setWidgetResizable(True)
+        self.graph_scroll.setWidget(graphs)
+        right.addWidget(self.graph_scroll)
         self.tabs = W.QTabWidget()
         candidate_panel = W.QWidget()
         cl = W.QVBoxLayout(candidate_panel)
@@ -327,7 +346,7 @@ class Workbench(W.QMainWindow):
         self.diagnostics.setReadOnly(True)
         self.tabs.addTab(self.diagnostics, "Data & timing")
         right.addWidget(self.tabs)
-        right.setSizes([620, 260])
+        right.setSizes([760, 180])
         split.setSizes([350, 1050])
         self.setCentralWidget(central)
         self.apply_settings(Settings())
@@ -437,6 +456,8 @@ class Workbench(W.QMainWindow):
             self.full_ride()
             if self.result["events"]:
                 self.event_table.selectRow(0)
+                if self.auto_fit_jump.isChecked():
+                    self.fit_jump_detail()
             self.mark_dirty()
         except (OSError, ValueError, TypeError, KeyError) as exc:
             self.error(exc)
@@ -496,6 +517,8 @@ class Workbench(W.QMainWindow):
             view = saved.get("view", [0, result["time"][-1]])
             if len(view) == 2 and np.isfinite(view).all() and 0 <= view[0] < view[1] <= result["time"][-1] + .01:
                 self.load_plot.setXRange(*view, padding=0)
+                if self.gyro_focus.isChecked():
+                    self.gyro_plot.setXRange(*view, padding=0)
             else:
                 self.full_ride()
             selection = saved.get("selection")
@@ -506,6 +529,8 @@ class Workbench(W.QMainWindow):
                 candidate = next((e for e in result["events"] if e["start_s"] >= visible[0] and e["end_s"] <= visible[1]), None)
                 if candidate:
                     self.selection.setRegion((candidate["start_s"], candidate["end_s"]))
+            if self.auto_fit_jump.isChecked():
+                self.fit_jump_detail()
             self.dirty = False
             self.setWindowTitle("Bike Coach · Jump Workbench — " + ride.path.name)
             self.preferences.setValue("last_session", str(self.session_path))
@@ -684,6 +709,8 @@ class Workbench(W.QMainWindow):
             self.fix_vertical_scales()
             self.load_plot.setXRange(0, self.result["time"][-1], padding=0)
             self.overview.setXRange(0, self.result["time"][-1], padding=0)
+            if self.gyro_focus.isChecked():
+                self.gyro_plot.setXRange(0, self.result["time"][-1], padding=0)
 
     def fix_vertical_scales(self):
         """Lock load to full-recording bounds and gyro charts to chosen view ranges."""
@@ -691,30 +718,57 @@ class Workbench(W.QMainWindow):
             return
         load_max = max(1.0, float(self.ride.load.max()) * 1.08)
         gyro_max = self.chart_controls["gyro_half_span_dps"].value()
+        gyro_center = self.chart_controls["gyro_center_dps"].value()
         vibration_max = self.chart_controls["vibration_max_dps"].value()
         for plot, low, high in [(self.load_plot, 0.0, load_max), (self.overview, 0.0, load_max),
-                                (self.gyro_plot, -gyro_max, gyro_max), (self.vibration_plot, 0., vibration_max)]:
+                                (self.gyro_plot, gyro_center - gyro_max, gyro_center + gyro_max), (self.vibration_plot, 0., vibration_max)]:
             view = plot.getViewBox()
             view.enableAutoRange(axis=pg.ViewBox.YAxis, enable=False)
             view.setLimits(yMin=low, yMax=high, minYRange=high - low, maxYRange=high - low)
             view.setYRange(low, high, padding=0)
 
     def apply_chart_scales(self, values):
-        defaults = {"gyro_half_span_dps": 100., "vibration_max_dps": 50.}
+        defaults = {"gyro_half_span_dps": 100., "vibration_max_dps": 50., "gyro_center_dps": 0.}
         if not isinstance(values, dict):
             values = {}
         for key, default in defaults.items():
             value = values.get(key, default)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or not .1 <= value <= 10000:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or not (-10000. if key == "gyro_center_dps" else .1) <= value <= 10000:
                 value = default
             widget = self.chart_controls[key]
             widget.blockSignals(True)
             widget.setValue(value)
             widget.blockSignals(False)
+        self.auto_fit_jump.blockSignals(True)
+        self.auto_fit_jump.setChecked(values.get("fit_jump_on_select", True) is True)
+        self.auto_fit_jump.blockSignals(False)
+        self.gyro_focus.blockSignals(True)
+        self.gyro_focus.setChecked(values.get("gyro_focus", False) is True)
+        self.gyro_focus.blockSignals(False)
+        self.set_gyro_focus(self.gyro_focus.isChecked(), mark=False)
         self.fix_vertical_scales()
         self.update_scale_note()
 
+    def time_view(self):
+        return (self.gyro_plot if self.gyro_focus.isChecked() else self.load_plot).viewRange()[0]
+
+    def set_gyro_focus(self, enabled, mark=True):
+        # A hidden master plot has no useful screen geometry for linked X ranges.
+        old_focus = self.load_plot.isHidden()
+        bounds = (self.gyro_plot if old_focus else self.load_plot).viewRange()[0]
+        self.gyro_plot.setXLink(None if enabled else self.load_plot)
+        self.vibration_plot.setXLink(self.gyro_plot if enabled else self.load_plot)
+        self.overview.setVisible(not enabled)
+        self.load_plot.setVisible(not enabled)
+        self.gyro_focus.setText("Show load + gyro charts" if enabled else "Gyro focus · hide load charts")
+        self.tabs.setMaximumHeight(200 if enabled else 16777215)
+        self.right_splitter.setSizes([max(650, self.height() - 270), 170 if enabled else 220])
+        (self.gyro_plot if enabled else self.load_plot).setXRange(*bounds, padding=0)
+        if mark:
+            self.mark_dirty()
+
     def chart_scale_changed(self):
+        self.auto_fit_jump.setChecked(False)
         self.fix_vertical_scales()
         self.update_scale_note()
         self.mark_dirty()
@@ -727,7 +781,7 @@ class Workbench(W.QMainWindow):
             rates = self.ride.gyro
         rate_limit = self.chart_controls["gyro_half_span_dps"].value()
         vibration_limit = self.chart_controls["vibration_max_dps"].value()
-        rate_out = np.count_nonzero(np.any(np.abs(rates) > rate_limit, axis=1))
+        rate_out = np.count_nonzero(np.any(np.abs(rates - self.chart_controls["gyro_center_dps"].value()) > rate_limit, axis=1))
         vibration_out = np.count_nonzero(self.result["gyro_vibration"] > vibration_limit)
         self.scale_note.setText(f"Fixed view ranges. Outside view: {rate_out:,} rotation samples; {vibration_out:,} vibration samples. Fit once to show them; source values stay intact.")
 
@@ -737,7 +791,7 @@ class Workbench(W.QMainWindow):
         t = self.result["time"]
         mask = np.ones(len(t), dtype=bool)
         if visible:
-            low, high = self.load_plot.viewRange()[0]
+            low, high = self.time_view()
             mask = (t >= low) & (t <= high)
         if not mask.any():
             return
@@ -749,7 +803,31 @@ class Workbench(W.QMainWindow):
         # Round up to a tenth so the saved/displayed scale never crops its fitted peak.
         values = {"gyro_half_span_dps": max(.1, float(np.ceil(np.abs(rates[mask]).max() * 1.1 * 10) / 10)),
                   "vibration_max_dps": max(.1, float(np.ceil(finite.max() * 1.1 * 10) / 10)) if len(finite) else self.chart_controls["vibration_max_dps"].value()}
+        values["gyro_center_dps"] = 0.
+        values["fit_jump_on_select"] = False
+        values["gyro_focus"] = self.gyro_focus.isChecked()
         self.apply_chart_scales(values)
+        self.mark_dirty()
+
+    def fit_jump_detail(self):
+        if not self.result:
+            return
+        start, end = self.selection.getRegion()
+        t = self.result["time"]
+        mask = (t >= start) & (t <= end)
+        if not mask.any():
+            return
+        rates = bike_frame(self.ride)
+        if rates is None:
+            rates = self.ride.gyro
+        low, high = float(rates[mask].min()), float(rates[mask].max())
+        center = round((low + high) / 2, 1)
+        span = max(.1, float(np.ceil(max(high - center, center - low) * 1.1 * 10) / 10))
+        rough = self.result["gyro_vibration"][mask]
+        rough = rough[np.isfinite(rough)]
+        self.apply_chart_scales({"gyro_half_span_dps": span, "gyro_center_dps": center,
+                                 "vibration_max_dps": max(.1, float(np.ceil(rough.max() * 1.1 * 10) / 10)) if len(rough) else self.chart_controls["vibration_max_dps"].value(),
+                                 "fit_jump_on_select": self.auto_fit_jump.isChecked(), "gyro_focus": self.gyro_focus.isChecked()})
         self.mark_dirty()
 
     def event_selected(self):
@@ -757,10 +835,15 @@ class Workbench(W.QMainWindow):
         if self.result and 0 <= row < len(self.result["events"]):
             event = self.result["events"][row]
             self.focus_interval(event["start_s"], event["end_s"])
+            if self.auto_fit_jump.isChecked():
+                self.fit_jump_detail()
 
     def focus_interval(self, start, end):
         self.selection.setRegion((start, end))
-        self.load_plot.setXRange(max(0, start - .8), min(self.result["time"][-1], end + .8), padding=0)
+        bounds = (max(0, start - .8), min(self.result["time"][-1], end + .8))
+        self.load_plot.setXRange(*bounds, padding=0)
+        if self.gyro_focus.isChecked():
+            self.gyro_plot.setXRange(*bounds, padding=0)
 
     def step_event(self, step):
         count = self.event_table.rowCount()
@@ -886,8 +969,10 @@ class Workbench(W.QMainWindow):
             if self.timer.isActive() or self.result_settings is None or asdict(settings) != asdict(self.result_settings):
                 raise ValueError("Settings have not produced a valid analysis. Correct them before saving.")
             value = make_session(self.ride, settings, self.result, self.labels, self.snapshots,
-                                 self.load_plot.viewRange()[0], self.notes.toPlainText(), path)
+                                 self.time_view(), self.notes.toPlainText(), path)
             value["chart_scales"] = {key: widget.value() for key, widget in self.chart_controls.items()}
+            value["chart_scales"]["fit_jump_on_select"] = self.auto_fit_jump.isChecked()
+            value["chart_scales"]["gyro_focus"] = self.gyro_focus.isChecked()
             value["selection"] = [float(v) for v in self.selection.getRegion()]
             value["catalog_path"] = str(self.catalog.path)
             value["catalog_entries"] = [e for e in self.catalog.entries if e.get("observation", {}).get("recording_sha256") == self.ride.sha256]
