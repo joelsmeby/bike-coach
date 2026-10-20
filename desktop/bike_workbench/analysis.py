@@ -14,11 +14,13 @@ from scipy.ndimage import median_filter, uniform_filter1d
 from scipy.optimize import linear_sum_assignment
 from scipy.signal import butter, sosfiltfilt
 
-ALGORITHM_VERSION = "load-sequence/1.2.0"
+from . import gps
+
+ALGORITHM_VERSION = "load-sequence/1.3.0"
 
 
 def algorithm_fingerprint():
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return hashlib.sha256(Path(__file__).read_bytes() + Path(gps.__file__).read_bytes()).hexdigest()
 
 
 @dataclass
@@ -38,6 +40,11 @@ class Settings:
     gyro_range_dps: float = 250.0
     uniform_hz: float = 0.0
     assumed_speed_mph: float = 18.0
+    distance_mode: str = "auto"
+    gps_max_sync_s: float = .25
+    gps_max_gap_s: float = 1.5
+    gps_max_age_s: float = 1.0
+    gps_max_accuracy_m: float = 20.0
     merge_gap_s: float = 0.2
     landing_hold_s: float = 0.08
 
@@ -59,6 +66,10 @@ class Settings:
             raise ValueError("Cutoff and impact search must be positive; sample rate cannot be negative.")
         if min(self.accel_range_g, self.gyro_range_dps, self.impact_g) <= 0:
             raise ValueError("Sensor ranges and impact threshold must be positive.")
+        if self.distance_mode not in {"auto", "assumed"}:
+            raise ValueError("Unknown distance mode.")
+        if min(self.gps_max_sync_s, self.gps_max_gap_s, self.gps_max_age_s, self.gps_max_accuracy_m) <= 0:
+            raise ValueError("GPS quality limits must be positive.")
         if self.assumed_speed_mph < 0:
             raise ValueError("Assumed speed cannot be negative.")
         if self.merge_gap_s < 0 or self.landing_hold_s <= 0:
@@ -76,6 +87,7 @@ class Ride:
     warnings: list[str] = field(default_factory=list)
     repeated_timestamps: int = 0
     reported_hz: float | None = None
+    gps: dict | None = None
 
     @property
     def load(self):
@@ -142,8 +154,10 @@ def load_ride(path: str | Path) -> Ride:
             time[start:end] += np.arange(end - start) * width / (end - start)
         warnings.append(f"{repeats:,} repeated RTC stamps: sample times interpolated within bins; boundaries are approximate.")
     warnings.append("Acceleration units assumed mg; gyro units assumed degrees/s. Sensor ranges are editable assumptions.")
+    gps_data, gps_warnings = gps.import_gps(lines)
+    warnings.extend(gps_warnings)
     return Ride(path, hashlib.sha256(payload).hexdigest(), time, np.array(accel), np.array(gyro),
-                calibration, warnings, repeats, float(np.median(rates)) if rates else None)
+                calibration, warnings, repeats, float(np.median(rates)) if rates else None, gps_data)
 
 
 def timeline(ride: Ride, settings: Settings):
@@ -264,10 +278,12 @@ def analyze(ride: Ride, settings: Settings):
                 "gyro_clipped": bool(gyro_clipped[left:limit].any()),
             })
     for event in events:
-        event["distance_ft"] = settings.assumed_speed_mph * 5280 / 3600 * event["window_s"]
-        event["distance_m"] = event["distance_ft"] * .3048
+        distance = gps.estimate(ride.gps, event, settings)
+        event["distance_m"] = distance["distance_m"]
+        event["distance_ft"] = distance["distance_m"] / .3048
         event["assumed_speed_mph"] = settings.assumed_speed_mph
-        event["distance_source"] = "assumed_constant_speed_x_candidate_window"
+        event["distance_source"] = distance["source"]
+        event["distance_evidence"] = distance
     if settings.uniform_hz:
         warnings.append("Uniform sample-rate override active: RTC gaps and timing jitter are ignored.")
     intervals = np.diff(time)
@@ -275,7 +291,7 @@ def analyze(ride: Ride, settings: Settings):
     sample_hz = float(1 / np.mean(continuous_intervals)) if len(continuous_intervals) else 0.0
     return {"time": time, "raw": raw, "filtered": clean, "events": events,
             "clipped": clipped, "gyro_clipped": gyro_clipped, "warnings": ride.warnings + warnings,
-            "sample_hz": sample_hz,
+            "sample_hz": sample_hz, "gps": gps.summary(ride.gps),
             "gap_count": len(segments(time, settings.gap_s)) - 1}
 
 

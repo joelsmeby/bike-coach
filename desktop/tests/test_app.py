@@ -26,7 +26,7 @@ class AppTests(unittest.TestCase):
         preferences = QSettings(str(Path(self.directory.name) / "preferences.ini"), QSettings.IniFormat)
         self.preferences_patch = patch("bike_workbench.app.QtCore.QSettings", return_value=preferences)
         self.preferences_patch.start()
-        self.window = Workbench()
+        self.window = Workbench(catalog_path=Path(self.directory.name) / "catalog.json")
         self.window.open_csv(path=self.csv)
 
     def tearDown(self):
@@ -78,6 +78,63 @@ class AppTests(unittest.TestCase):
         _, _, settings, result = read_session(path)
         self.assertEqual(settings.assumed_speed_mph, 36)
         self.assertAlmostEqual(result["events"][0]["distance_ft"], 27.456)
+
+    def test_gps_file_distance_source_and_saved_evidence(self):
+        import json
+        from test_gps import metadata
+        ride, gps = metadata()
+        self.csv.write_text("# BikeCoachRide=" + json.dumps(ride) + "\n# BikeCoachGPS=" + json.dumps(gps) + "\n" + self.csv.read_text())
+        w = self.window
+        w.dirty = False
+        w.open_csv(path=self.csv)
+        self.assertIn("GPS", w.event_table.item(0, 8).text())
+        self.assertAlmostEqual(float(w.event_table.item(0, 4).text()), 13.6)
+        self.assertIn("Mean horizontal speed", w.event_table.item(0, 4).toolTip())
+        path = Path(self.directory.name) / "gps-session.json"
+        self.assertTrue(w.write_session(path))
+        saved, _, _, result = read_session(path)
+        self.assertEqual(saved["gps"]["speed_fix_count"], 41)
+        self.assertEqual(result["events"][0]["distance_source"], "gps_horizontal_speed_integral")
+        self.assertEqual(saved["events"][0]["distance_evidence"]["quality"], "sampled")
+
+    def test_catalog_unknown_angles_persistence_and_separate_measurements(self):
+        w = self.window
+        w.event_table.selectRow(0)
+        c = w.catalog
+        c.trail.setText("Sea Donkey")
+        c.jump.setText("Jump 1")
+        self.assertTrue(c.save())
+        entry = c.entries[0]
+        self.assertIsNone(entry["ramp_angle_deg"])
+        self.assertIsNone(entry["bike_pitch_deg"])
+        self.assertEqual(entry["observation"]["recording_sha256"], w.ride.sha256)
+        known, angle = c.angles["bike_pitch_deg"]
+        known.setChecked(True)
+        angle.setValue(25)
+        self.assertFalse(c.save())  # Measurement provenance required.
+        c.notes.setText("Manual video estimate of bike pitch, uncalibrated")
+        self.assertTrue(c.save())
+        self.assertIsNone(c.entries[0]["trajectory_angle_deg"])
+        self.assertIsNone(c.entries[0]["ramp_angle_deg"])
+        self.assertEqual(c.entries[0]["bike_pitch_deg"], 25)
+        from bike_workbench.catalog import Catalog
+        reopened = Catalog(w, c.path)
+        self.assertEqual(reopened.entries, c.entries)
+        path = Path(self.directory.name) / "catalog-session.json"
+        self.assertTrue(w.write_session(path))
+        saved = read_session(path)[0]
+        self.assertEqual(saved["catalog_entries"], c.entries)
+        self.assertEqual(saved["gps"]["available"], False)
+        reopened.deleteLater()
+
+    def test_catalog_corruption_does_not_overwrite_file(self):
+        from bike_workbench.catalog import Catalog
+        path = Path(self.directory.name) / "bad-catalog.json"
+        path.write_text("broken")
+        catalog = Catalog(self.window, path)
+        self.assertFalse(catalog.save())
+        self.assertEqual(path.read_text(), "broken")
+        catalog.deleteLater()
 
     def test_invalid_settings_cannot_autosave_stale_results(self):
         w = self.window

@@ -13,6 +13,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets as W
 
 from . import __version__
+from .catalog import Catalog
 from .analysis import Settings, analyze, evaluate, load_ride, ALGORITHM_VERSION, algorithm_fingerprint
 from .session import atomic_json, make_session, read_session
 
@@ -21,7 +22,7 @@ COLORS = {"raw": "#69798d", "clean": "#70d5d0", "baseline": "#d4a4ff", "clip": "
 
 
 class Workbench(W.QMainWindow):
-    def __init__(self):
+    def __init__(self, catalog_path=None):
         super().__init__()
         self.ride = self.result = self.session_path = None
         self.labels, self.snapshots = [], []
@@ -43,6 +44,7 @@ class Workbench(W.QMainWindow):
         self.autosave_timer.setSingleShot(True)
         self.autosave_timer.setInterval(1000)
         self.autosave_timer.timeout.connect(self.autosave)
+        self.catalog_path = catalog_path or Path(__file__).resolve().parents[1] / "sessions" / "jump-catalog.json"
         self.build_ui()
         self.setStyleSheet("""
             QMainWindow, QWidget { background:#141b25; color:#e5edf5; font-size:13px; }
@@ -117,6 +119,7 @@ class Workbench(W.QMainWindow):
             box = W.QGroupBox(title)
             form = W.QFormLayout(box)
             form.setFieldGrowthPolicy(W.QFormLayout.AllNonFixedFieldsGrow)
+            form.setRowWrapPolicy(W.QFormLayout.WrapLongRows)
             controls_layout.addWidget(box)
             return form
 
@@ -164,8 +167,13 @@ class Workbench(W.QMainWindow):
         ]:
             spin(f, *args)
         f = group("Distance estimate")
+        combo(f, "distance_mode", "Speed source", [("GPS when usable", "auto"), ("Assumed horizontal speed", "assumed")])
+        spin(f, "gps_max_sync_s", "Max clock uncertainty · s", .01, 2., .05)
+        spin(f, "gps_max_gap_s", "Max GPS gap · s", .05, 5., .1)
+        spin(f, "gps_max_age_s", "Max boundary age · s", .05, 5., .1)
+        spin(f, "gps_max_accuracy_m", "Max position uncertainty · m", 1., 100., 1.)
         spin(f, "assumed_speed_mph", "Assumed speed · mph", 0., 100., .5, 1)
-        distance_note = W.QLabel("Distance = assumed speed × low-load window duration. Estimates only; GPS speed is not used yet.")
+        distance_note = W.QLabel("GPS horizontal speed is integrated over the candidate window when usable. Otherwise use recent approach speed, then the assumed horizontal speed. Position accuracy does not measure speed accuracy. No angle correction is needed for horizontal speed.")
         distance_note.setWordWrap(True)
         distance_note.setMinimumWidth(0)
         distance_note.setSizePolicy(W.QSizePolicy.Ignored, W.QSizePolicy.Preferred)
@@ -248,8 +256,8 @@ class Workbench(W.QMainWindow):
         self.selection_label = W.QLabel("Orange selection: —")
         candidate_bar.addWidget(self.selection_label, 1)
         cl.addLayout(candidate_bar)
-        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Est. ft*", "Impact · s", "Impact · g", "Review"])
-        self.event_table.horizontalHeaderItem(4).setToolTip("Estimated distance in feet: assumed constant speed × candidate low-load window. Not a measured airborne distance.")
+        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Est. ft*", "Impact · s", "Impact · g", "Review", "Distance source"])
+        self.event_table.horizontalHeaderItem(4).setToolTip("Horizontal distance estimate over the candidate window. Source and quality are shown per row; hover for details. Candidate windows are not verified airtime.")
         self.event_table.itemSelectionChanged.connect(self.event_selected)
         cl.addWidget(self.event_table)
         label_bar = W.QHBoxLayout()
@@ -271,6 +279,8 @@ class Workbench(W.QMainWindow):
         delete.clicked.connect(self.remove_label)
         ll.addWidget(delete)
         self.tabs.addTab(label_panel, "Your labels")
+        self.catalog = Catalog(self, self.catalog_path)
+        self.tabs.addTab(self.catalog, "Jump catalog")
         self.notes = W.QPlainTextEdit()
         self.notes.setPlaceholderText("Session notes: bike, sensor settings, trail, mounting, and what to investigate next…")
         self.notes.textChanged.connect(self.mark_dirty)
@@ -567,11 +577,18 @@ class Workbench(W.QMainWindow):
                 values[-1] += " · shared impact"
             if e["joined_windows"] > 1:
                 values[-1] += f" · joined {e['joined_windows']} windows"
+            evidence = e["distance_evidence"]
+            source = {"gps_horizontal_speed_integral": "GPS", "gps_approach_speed": "GPS approach", "assumed_constant_speed_x_candidate_window": "Assumed"}[e["distance_source"]]
+            values.append(source + " · " + evidence["quality"])
             for column, value in enumerate(values):
                 item = W.QTableWidgetItem(str(value))
-                item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m, assuming {settings.assumed_speed_mph:g} mph\n"
-                                f"Uses the {e['window_s']:.3f} s candidate window; not measured airtime or GPS distance."
-                                if column == 4 else str(value))
+                approach = evidence["approach_horizontal_mps"]
+                speed_note = f"Mean horizontal speed: {evidence['mean_horizontal_mps'] / .44704:.1f} mph."
+                if approach is not None:
+                    speed_note += f" Recent approach: {approach / .44704:.1f} mph (not instantaneous takeoff speed)."
+                item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m; {values[-1]}\n"
+                                f"Fallback assumption: {settings.assumed_speed_mph:g} mph horizontal. Window: {e['window_s']:.3f} s; not verified airtime.\n"
+                                + speed_note + "\n" + "\n".join(evidence["reasons"]) if column in (4, 8) else str(value))
                 self.event_table.setItem(row, column, item)
         self.event_table.blockSignals(False)
         score = evaluate(r["events"], self.labels)
@@ -580,13 +597,13 @@ class Workbench(W.QMainWindow):
         self.notice.setText(f"{len(t):,} samples · ~{r['sample_hz']:.1f} Hz · {r['gap_count']} gaps · "
                             f"{100 * clip.mean():.1f}% accel range flags · "
                             f"labeled jumps found {score['matched_jumps']}/{score['labeled_jumps']} · "
-                            f"* distance assumes {settings.assumed_speed_mph:g} mph; windows ≠ verified airtime; impact may be clipped")
+                            f"* horizontal distance: see source per row; fallback {settings.assumed_speed_mph:g} mph; windows ≠ verified airtime")
         diagnostics = [f"Source: {self.ride.path}", f"SHA-256: {self.ride.sha256}",
                        f"Algorithm: {ALGORITHM_VERSION}", f"Time span: {t[-1]:.3f} s", f"Estimated sample rate: {r['sample_hz']:.3f} Hz",
                        f"Reported output_Hz median: {self.ride.reported_hz}",
                        f"Assumed rails: ±{settings.accel_range_g:g} g / ±{settings.gyro_range_dps:g} °/s",
                        f"Gyro range flags: {np.count_nonzero(r['gyro_clipped']):,}",
-                       "", *r["warnings"], "", json.dumps(score, indent=2), "", json.dumps(asdict(settings), indent=2)]
+                       "", *r["warnings"], "", "GPS sampling and timing:", json.dumps(r["gps"], indent=2), "", json.dumps(score, indent=2), "", json.dumps(asdict(settings), indent=2)]
         self.diagnostics.setPlainText("\n".join(diagnostics))
 
     def overview_changed(self):
@@ -766,6 +783,8 @@ class Workbench(W.QMainWindow):
             value = make_session(self.ride, settings, self.result, self.labels, self.snapshots,
                                  self.load_plot.viewRange()[0], self.notes.toPlainText(), path)
             value["selection"] = [float(v) for v in self.selection.getRegion()]
+            value["catalog_path"] = str(self.catalog.path)
+            value["catalog_entries"] = [e for e in self.catalog.entries if e.get("observation", {}).get("recording_sha256") == self.ride.sha256]
             value["comparison_index"] = self.baseline_combo.currentData()
             if Path(path).resolve() == self.ride.path:
                 raise ValueError("A session cannot overwrite the original recording.")

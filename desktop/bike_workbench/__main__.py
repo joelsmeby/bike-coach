@@ -32,7 +32,7 @@ def main():
             from dataclasses import asdict
             report = {"algorithm_version": ALGORITHM_VERSION, "analysis_sha256": algorithm_fingerprint(), "recording_sha256": ride.sha256,
                       "settings": asdict(settings), "events": result["events"], "warnings": result["warnings"],
-                      "sample_hz": result["sample_hz"], "evaluation": evaluate(result["events"], labels)}
+                      "gps": result["gps"], "sample_hz": result["sample_hz"], "evaluation": evaluate(result["events"], labels)}
             if args.output:
                 if Path(args.output).resolve() in {ride.path, Path(args.recording).resolve()}:
                     raise ValueError("Output must not overwrite the original recording or input session.")

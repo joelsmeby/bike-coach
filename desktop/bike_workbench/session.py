@@ -43,6 +43,7 @@ def make_session(ride, settings, result, labels, snapshots, view, notes, path):
                       "sha256": ride.sha256, "samples": len(ride.time), "calibration": ride.calibration},
         "settings": asdict(settings), "view": [float(v) for v in view], "notes": notes,
         "labels": labels, "snapshots": snapshots, "events": result["events"],
+        "gps": result.get("gps"),
         "evaluation": evaluate(result["events"], labels), "warnings": result["warnings"],
     }
 
