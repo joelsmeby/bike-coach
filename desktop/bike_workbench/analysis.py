@@ -14,13 +14,13 @@ from scipy.ndimage import median_filter, uniform_filter1d
 from scipy.optimize import linear_sum_assignment
 from scipy.signal import butter, sosfiltfilt
 
-from . import gps
+from . import gps, gyro
 
-ALGORITHM_VERSION = "load-sequence/1.3.0"
+ALGORITHM_VERSION = "load-sequence/1.4.0"
 
 
 def algorithm_fingerprint():
-    return hashlib.sha256(Path(__file__).read_bytes() + Path(gps.__file__).read_bytes()).hexdigest()
+    return hashlib.sha256(Path(__file__).read_bytes() + Path(gps.__file__).read_bytes() + Path(gyro.__file__).read_bytes()).hexdigest()
 
 
 @dataclass
@@ -45,6 +45,12 @@ class Settings:
     gps_max_gap_s: float = 1.5
     gps_max_age_s: float = 1.0
     gps_max_accuracy_m: float = 20.0
+    gyro_evidence: str = "support"
+    gyro_channel: str = "all"
+    gyro_trend_s: float = .12
+    gyro_context_s: float = .3
+    gyro_ratio: float = .65
+    gyro_floor_dps: float = 1.0
     merge_gap_s: float = 0.2
     landing_hold_s: float = 0.08
 
@@ -66,6 +72,10 @@ class Settings:
             raise ValueError("Cutoff and impact search must be positive; sample rate cannot be negative.")
         if min(self.accel_range_g, self.gyro_range_dps, self.impact_g) <= 0:
             raise ValueError("Sensor ranges and impact threshold must be positive.")
+        if self.gyro_evidence not in {"off", "support"} or self.gyro_channel not in {"all", "pitch"}:
+            raise ValueError("Unknown gyro evidence mode/channel.")
+        if min(self.gyro_trend_s, self.gyro_context_s, self.gyro_floor_dps) <= 0 or not 0 < self.gyro_ratio < 1:
+            raise ValueError("Gyro time windows/floor must be positive; vibration ratio must be between 0 and 1.")
         if self.distance_mode not in {"auto", "assumed"}:
             raise ValueError("Unknown distance mode.")
         if min(self.gps_max_sync_s, self.gps_max_gap_s, self.gps_max_age_s, self.gps_max_accuracy_m) <= 0:
@@ -210,8 +220,11 @@ def analyze(ride: Ride, settings: Settings):
     clean, warnings = filter_load(time, raw, settings)
     clipped = np.any(np.abs(ride.accel) >= settings.accel_range_g * .9999, axis=1)
     gyro_clipped = np.any(np.abs(ride.gyro) >= settings.gyro_range_dps * .9999, axis=1)
+    continuous = segments(time, settings.gap_s)
+    rough, gyro_channel, gyro_warnings = gyro.vibration(ride, time, settings, continuous)
+    warnings.extend(gyro_warnings)
     events = []
-    for start, end in segments(time, settings.gap_s):
+    for start, end in continuous:
         dt = float(np.mean(np.diff(time[start:end]))) if end - start > 1 else 0
         windows = []
         low = clean[start:end] < settings.core_g
@@ -265,7 +278,7 @@ def analyze(ride: Ride, settings: Settings):
             impact_index = int(right + 1 + hits[0]) if len(hits) else None
             if settings.mode == "sequence" and impact_index is None:
                 continue
-            events.append({
+            event = {
                 "start_index": left, "end_index": right,
                 "start_s": float(time[left]), "end_s": float(time[right]),
                 "window_s": float(time[right] - time[left] + dt),
@@ -276,7 +289,10 @@ def analyze(ride: Ride, settings: Settings):
                 "min_g": float(raw[left:right + 1].min()),
                 "clipped": bool(clipped[left:limit].any()),
                 "gyro_clipped": bool(gyro_clipped[left:limit].any()),
-            })
+            }
+            event["gyro_evidence"] = gyro.evidence(time, rough, event, settings, (start, end))
+            event["gyro_evidence"]["channel"] = gyro_channel
+            events.append(event)
     for event in events:
         distance = gps.estimate(ride.gps, event, settings)
         event["distance_m"] = distance["distance_m"]
@@ -291,6 +307,7 @@ def analyze(ride: Ride, settings: Settings):
     sample_hz = float(1 / np.mean(continuous_intervals)) if len(continuous_intervals) else 0.0
     return {"time": time, "raw": raw, "filtered": clean, "events": events,
             "clipped": clipped, "gyro_clipped": gyro_clipped, "warnings": ride.warnings + warnings,
+            "gyro_vibration": rough, "gyro_channel": gyro_channel,
             "sample_hz": sample_hz, "gps": gps.summary(ride.gps),
             "gap_count": len(segments(time, settings.gap_s)) - 1}
 

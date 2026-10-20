@@ -14,6 +14,7 @@ from PySide6 import QtCore, QtGui, QtWidgets as W
 
 from . import __version__
 from .catalog import Catalog
+from .gyro import bike_frame
 from .analysis import Settings, analyze, evaluate, load_ride, ALGORITHM_VERSION, algorithm_fingerprint
 from .session import atomic_json, make_session, read_session
 
@@ -166,6 +167,18 @@ class Workbench(W.QMainWindow):
             ("landing_hold_s", "Landing hold · s", .02, .5, .02),
         ]:
             spin(f, *args)
+        f = group("Gyro support")
+        combo(f, "gyro_evidence", "Evidence", [("Supporting score", "support"), ("Off", "off")])
+        combo(f, "gyro_channel", "Use rates", [("All axes", "all"), ("Bike pitch only", "pitch")])
+        spin(f, "gyro_trend_s", "Remove trend over · s", .06, .5, .02)
+        spin(f, "gyro_context_s", "Trail context · s", .1, 2., .05)
+        spin(f, "gyro_ratio", "Flight/trail ratio ≤", .05, .95, .05)
+        spin(f, "gyro_floor_dps", "Min. trail vibration · °/s", .1, 50., .5)
+        gyro_note = W.QLabel("Lower vibration during low load supports a jump. Score only: timing and counts stay unchanged. Pitch-only needs saved bike calibration. Hover a score for takeoff/landing evidence.")
+        gyro_note.setWordWrap(True)
+        gyro_note.setMinimumWidth(0)
+        gyro_note.setSizePolicy(W.QSizePolicy.Ignored, W.QSizePolicy.Preferred)
+        f.addRow(gyro_note)
         f = group("Distance estimate")
         combo(f, "distance_mode", "Speed source", [("GPS when usable", "auto"), ("Assumed horizontal speed", "assumed")])
         spin(f, "gps_max_sync_s", "Max clock uncertainty · s", .01, 2., .05)
@@ -220,6 +233,7 @@ class Workbench(W.QMainWindow):
         self.clean_curve = self.load_plot.plot(pen=pg.mkPen(COLORS["clean"], width=2), name="Filtered")
         self.baseline_curve = self.load_plot.plot(pen=pg.mkPen(COLORS["baseline"], width=1.5, style=QtCore.Qt.DashLine), name="Comparison")
         self.gyro_curves = [self.gyro_plot.plot(pen=pg.mkPen(COLORS[k], width=1), name=k.upper()) for k in ("x", "y", "z")]
+        self.vibration_curve = self.gyro_plot.plot(pen=pg.mkPen("#f5e39e", width=2, style=QtCore.Qt.DashLine), name="Gyro vibration")
         self.overview_curve = self.overview.plot(pen=pg.mkPen(COLORS["raw"], width=1))
         self.clip_marks = pg.ScatterPlotItem(symbol="x", size=7, pen=pg.mkPen(COLORS["clip"]))
         self.impact_marks = pg.ScatterPlotItem(symbol="t1", size=12, brush=COLORS["clean"], pen=None)
@@ -256,7 +270,8 @@ class Workbench(W.QMainWindow):
         self.selection_label = W.QLabel("Orange selection: —")
         candidate_bar.addWidget(self.selection_label, 1)
         cl.addLayout(candidate_bar)
-        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Est. ft*", "Impact · s", "Impact · g", "Review", "Distance source"])
+        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Est. ft*", "Impact · s", "Impact · g", "Review", "Distance source", "Gyro support"])
+        self.event_table.horizontalHeaderItem(9).setToolTip("0–100 vibration reduction versus surrounding trail. Supports requires both boundaries; not a jump probability. Hover each cell for details.")
         self.event_table.horizontalHeaderItem(4).setToolTip("Horizontal distance estimate over the candidate window. Source and quality are shown per row; hover for details. Candidate windows are not verified airtime.")
         self.event_table.itemSelectionChanged.connect(self.event_selected)
         cl.addWidget(self.event_table)
@@ -513,25 +528,20 @@ class Workbench(W.QMainWindow):
         breaks = np.r_[np.diff(t) <= settings.gap_s, True]
         for curve, values in [(self.raw_curve, r["raw"]), (self.clean_curve, r["filtered"]), (self.overview_curve, r["raw"])]:
             curve.setData(t, values, connect=breaks)
-        gyro = self.ride.gyro
-        c = self.ride.calibration
-        try:
-            basis = np.array([c[axis] for axis in ("forward", "left", "up")], dtype=float)
-            bias = np.array(c.get("bias", [0, 0, 0]), dtype=float)
-            valid = basis.shape == (3, 3) and bias.shape == (3,) and np.isfinite(basis).all() and np.isfinite(bias).all()
-            if not valid or not np.allclose(basis @ basis.T, np.eye(3), atol=.03):
-                raise ValueError("Invalid frame")
-            gyro = (gyro - bias) @ basis.T
+        gyro = bike_frame(self.ride)
+        if gyro is not None:
             names = ["Roll · forward", "Pitch · left", "Yaw · up"]
             gyro_title = "Angular velocity · saved bike frame, gyro bias removed"
-        except (KeyError, ValueError, TypeError):
+        else:
+            gyro = self.ride.gyro
             names, gyro_title = ["Device X", "Device Y", "Device Z"], "Angular velocity · device axes"
         self.gyro_plot.setTitle(gyro_title)
         legend = self.gyro_plot.plotItem.legend
         for i, curve in enumerate(self.gyro_curves):
             curve.setData(t, gyro[:, i], connect=breaks)
-        for i, (_, label) in enumerate(legend.items):
-            label.setText(names[i])
+        for (_, label), name in zip(legend.items, names + ["Vibration · " + r["gyro_channel"]]):
+            label.setText(name)
+        self.vibration_curve.setData(t, r["gyro_vibration"], connect="finite")
         clip = r["clipped"]
         self.clip_marks.setData(t[clip], r["raw"][clip])
         hits = [e for e in r["events"] if e["impact_s"] is not None]
@@ -579,16 +589,28 @@ class Workbench(W.QMainWindow):
                 values[-1] += f" · joined {e['joined_windows']} windows"
             evidence = e["distance_evidence"]
             source = {"gps_horizontal_speed_integral": "GPS", "gps_approach_speed": "GPS approach", "assumed_constant_speed_x_candidate_window": "Assumed"}[e["distance_source"]]
-            values.append(source + " · " + evidence["quality"])
+            source_text = f"{settings.assumed_speed_mph:g} mph assumed" if source == "Assumed" else "GPS approach" if source == "GPS approach" else source + " · " + evidence["quality"]
+            values.append(source_text)
+            ge = e["gyro_evidence"]
+            score_text = "—" if ge["support_score"] is None else f"{ge['support_score']:.0f}"
+            values.append(score_text + " · " + ge["status"])
             for column, value in enumerate(values):
                 item = W.QTableWidgetItem(str(value))
                 approach = evidence["approach_horizontal_mps"]
                 speed_note = f"Mean horizontal speed: {evidence['mean_horizontal_mps'] / .44704:.1f} mph."
                 if approach is not None:
                     speed_note += f" Recent approach: {approach / .44704:.1f} mph (not instantaneous takeoff speed)."
-                item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m; {values[-1]}\n"
+                item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m; {values[8]}\n"
                                 f"Fallback assumption: {settings.assumed_speed_mph:g} mph horizontal. Window: {e['window_s']:.3f} s; not verified airtime.\n"
                                 + speed_note + "\n" + "\n".join(evidence["reasons"]) if column in (4, 8) else str(value))
+                if column == 9:
+                    def display(number):
+                        return "unavailable" if number is None else f"{number:.1f}"
+                    item.setToolTip(f"Gyro vibration contrast · {ge['channel']} · {ge['status']}\n"
+                                    f"Takeoff score: {display(ge['takeoff_score'])}/100; landing score: {display(ge['landing_score'])}/100\n"
+                                    f"Vibration before / during / after: {display(ge['before_dps'])} / {display(ge['flight_dps'])} / {display(ge['after_dps'])} °/s\n"
+                                    "Overall uses the weaker boundary. Supporting evidence only; not a jump probability.\n"
+                                    + "\n".join(ge["reasons"]))
                 self.event_table.setItem(row, column, item)
         self.event_table.blockSignals(False)
         score = evaluate(r["events"], self.labels)
@@ -603,7 +625,7 @@ class Workbench(W.QMainWindow):
                        f"Reported output_Hz median: {self.ride.reported_hz}",
                        f"Assumed rails: ±{settings.accel_range_g:g} g / ±{settings.gyro_range_dps:g} °/s",
                        f"Gyro range flags: {np.count_nonzero(r['gyro_clipped']):,}",
-                       "", *r["warnings"], "", "GPS sampling and timing:", json.dumps(r["gps"], indent=2), "", json.dumps(score, indent=2), "", json.dumps(asdict(settings), indent=2)]
+                       "", *r["warnings"], "", "GPS sampling and timing:", json.dumps(r["gps"], indent=2), "", "Gyro evidence by candidate:", json.dumps([e["gyro_evidence"] for e in r["events"]], indent=2), "", json.dumps(score, indent=2), "", json.dumps(asdict(settings), indent=2)]
         self.diagnostics.setPlainText("\n".join(diagnostics))
 
     def overview_changed(self):
@@ -628,7 +650,7 @@ class Workbench(W.QMainWindow):
         if self.result:
             self.raw_curve.show()
             self.clean_curve.show()
-            for curve in self.gyro_curves:
+            for curve in self.gyro_curves + [self.vibration_curve]:
                 curve.show()
             self.fix_vertical_scales()
             self.load_plot.setXRange(0, self.result["time"][-1], padding=0)

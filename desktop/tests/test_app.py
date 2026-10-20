@@ -79,6 +79,37 @@ class AppTests(unittest.TestCase):
         self.assertEqual(settings.assumed_speed_mph, 36)
         self.assertAlmostEqual(result["events"][0]["distance_ft"], 27.456)
 
+    def test_gyro_support_curve_controls_and_save_reload(self):
+        import numpy as np
+        from test_gyro import ride
+        from bike_workbench.analysis import Settings, analyze
+        w = self.window
+        r = ride()
+        w.install_ride(r, Settings(), analyze(r, Settings()))
+        self.assertTrue(w.recalculate())
+        self.assertIn("supports", w.event_table.item(0, 9).text())
+        self.assertIn("not a jump probability", w.event_table.item(0, 9).toolTip())
+        _, y = w.vibration_curve.getData()
+        self.assertTrue(np.isfinite(y).any())
+        w.controls["gyro_evidence"].setCurrentIndex(w.controls["gyro_evidence"].findData("off"))
+        w.timer.stop()
+        self.assertTrue(w.recalculate())
+        self.assertIn("off", w.event_table.item(0, 9).text())
+        _, y = w.vibration_curve.getData()
+        self.assertFalse(np.isfinite(y).any())
+        # Save with an actual source CSV so the session can be reopened.
+        w.dirty = False
+        w.open_csv(path=self.csv)
+        w.controls["gyro_channel"].setCurrentIndex(w.controls["gyro_channel"].findData("pitch"))
+        w.timer.stop()
+        self.assertTrue(w.recalculate())
+        path = Path(self.directory.name) / "gyro.json"
+        self.assertTrue(w.write_session(path))
+        saved, _, settings, result = read_session(path)
+        self.assertEqual(settings.gyro_channel, "pitch")
+        self.assertEqual(saved["events"][0]["gyro_evidence"]["channel"], "pitch unavailable")
+        self.assertIsNone(result["events"][0]["gyro_evidence"]["support_score"])
+
     def test_gps_file_distance_source_and_saved_evidence(self):
         import json
         from test_gps import metadata
