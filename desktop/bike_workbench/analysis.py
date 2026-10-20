@@ -14,7 +14,7 @@ from scipy.ndimage import median_filter, uniform_filter1d
 from scipy.optimize import linear_sum_assignment
 from scipy.signal import butter, sosfiltfilt
 
-ALGORITHM_VERSION = "load-sequence/1.0.0"
+ALGORITHM_VERSION = "load-sequence/1.1.0"
 
 
 def algorithm_fingerprint():
@@ -37,6 +37,7 @@ class Settings:
     accel_range_g: float = 2.0
     gyro_range_dps: float = 250.0
     uniform_hz: float = 0.0
+    assumed_speed_mph: float = 18.0
 
     def validate(self):
         numeric = [v for v in asdict(self).values() if isinstance(v, (int, float))]
@@ -56,6 +57,8 @@ class Settings:
             raise ValueError("Cutoff and impact search must be positive; sample rate cannot be negative.")
         if min(self.accel_range_g, self.gyro_range_dps, self.impact_g) <= 0:
             raise ValueError("Sensor ranges and impact threshold must be positive.")
+        if self.assumed_speed_mph < 0:
+            raise ValueError("Assumed speed cannot be negative.")
 
 
 @dataclass
@@ -227,6 +230,11 @@ def analyze(ride: Ride, settings: Settings):
                 "clipped": bool(clipped[left:limit].any()),
                 "gyro_clipped": bool(gyro_clipped[left:limit].any()),
             })
+    for event in events:
+        event["distance_ft"] = settings.assumed_speed_mph * 5280 / 3600 * event["window_s"]
+        event["distance_m"] = event["distance_ft"] * .3048
+        event["assumed_speed_mph"] = settings.assumed_speed_mph
+        event["distance_source"] = "assumed_constant_speed_x_candidate_window"
     if settings.uniform_hz:
         warnings.append("Uniform sample-rate override active: RTC gaps and timing jitter are ignored.")
     intervals = np.diff(time)

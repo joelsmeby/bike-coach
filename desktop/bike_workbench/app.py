@@ -161,6 +161,13 @@ class Workbench(W.QMainWindow):
             ("impact_search_s", "Impact search · s", .02, 2., .02),
         ]:
             spin(f, *args)
+        f = group("Distance estimate")
+        spin(f, "assumed_speed_mph", "Assumed speed · mph", 0., 100., .5, 1)
+        distance_note = W.QLabel("Distance = assumed speed × low-load window duration. Estimates only; GPS speed is not used yet.")
+        distance_note.setWordWrap(True)
+        distance_note.setMinimumWidth(0)
+        distance_note.setSizePolicy(W.QSizePolicy.Ignored, W.QSizePolicy.Preferred)
+        f.addRow(distance_note)
         f = group("Recording assumptions")
         spin(f, "accel_range_g", "Accel range · ±g", 1., 32., 1.)
         spin(f, "gyro_range_dps", "Gyro range · ±°/s", 125., 4000., 125., 0)
@@ -239,7 +246,8 @@ class Workbench(W.QMainWindow):
         self.selection_label = W.QLabel("Orange selection: —")
         candidate_bar.addWidget(self.selection_label, 1)
         cl.addLayout(candidate_bar)
-        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Impact · s", "Impact · g", "Review"])
+        self.event_table = self.table(["#", "Start · s", "End · s", "Window · s*", "Est. ft*", "Impact · s", "Impact · g", "Review"])
+        self.event_table.horizontalHeaderItem(4).setToolTip("Estimated distance in feet: assumed constant speed × candidate low-load window. Not a measured airborne distance.")
         self.event_table.itemSelectionChanged.connect(self.event_selected)
         cl.addWidget(self.event_table)
         label_bar = W.QHBoxLayout()
@@ -549,6 +557,7 @@ class Workbench(W.QMainWindow):
         for row, e in enumerate(r["events"]):
             overlap = [label["kind"] for label in self.labels if min(label["end_s"], e["end_s"]) > max(label["start_s"], e["start_s"])]
             values = [row + 1, f"{e['start_s']:.3f}", f"{e['end_s']:.3f}", f"{e['window_s']:.3f}",
+                      f"{e['distance_ft']:.1f}",
                       "—" if e["impact_s"] is None else f"{e['impact_s']:.3f}",
                       "—" if e["impact_g"] is None else f"{e['impact_g']:.2f}" + (" *" if e["clipped"] else ""),
                       ", ".join(overlap) or "Unreviewed"]
@@ -556,7 +565,9 @@ class Workbench(W.QMainWindow):
                 values[-1] += " · shared impact"
             for column, value in enumerate(values):
                 item = W.QTableWidgetItem(str(value))
-                item.setToolTip(str(value))
+                item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m, assuming {settings.assumed_speed_mph:g} mph\n"
+                                f"Uses the {e['window_s']:.3f} s candidate window; not measured airtime or GPS distance."
+                                if column == 4 else str(value))
                 self.event_table.setItem(row, column, item)
         self.event_table.blockSignals(False)
         score = evaluate(r["events"], self.labels)
@@ -564,7 +575,8 @@ class Workbench(W.QMainWindow):
         self.count_label.setText(f"{len(r['events'])} candidates · {unique_impacts} impact crossings · {len(self.labels)} labels")
         self.notice.setText(f"{len(t):,} samples · ~{r['sample_hz']:.1f} Hz · {r['gap_count']} gaps · "
                             f"{100 * clip.mean():.1f}% accel range flags · "
-                            f"labeled jumps found {score['matched_jumps']}/{score['labeled_jumps']} · * windows ≠ verified airtime; impact may be clipped")
+                            f"labeled jumps found {score['matched_jumps']}/{score['labeled_jumps']} · "
+                            f"* distance assumes {settings.assumed_speed_mph:g} mph; windows ≠ verified airtime; impact may be clipped")
         diagnostics = [f"Source: {self.ride.path}", f"SHA-256: {self.ride.sha256}",
                        f"Algorithm: {ALGORITHM_VERSION}", f"Time span: {t[-1]:.3f} s", f"Estimated sample rate: {r['sample_hz']:.3f} Hz",
                        f"Reported output_Hz median: {self.ride.reported_hz}",

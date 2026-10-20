@@ -74,6 +74,22 @@ class DetectionTests(unittest.TestCase):
         self.assertFalse(new["events"][0]["clipped"])
         self.assertEqual(old["events"][0]["start_s"], new["events"][0]["start_s"])
 
+    def test_assumed_speed_distance_units_and_detection_independence(self):
+        ride = synthetic_ride()
+        event = analyze(ride, Settings())["events"][0]
+        self.assertAlmostEqual(event["window_s"], .52)
+        self.assertAlmostEqual(event["distance_ft"], 13.728)
+        self.assertAlmostEqual(event["distance_m"], 4.1842944)
+        faster = analyze(ride, Settings(assumed_speed_mph=36))["events"][0]
+        self.assertAlmostEqual(faster["distance_ft"], event["distance_ft"] * 2)
+        self.assertEqual(faster["cores"], event["cores"])
+        stopped = analyze(ride, Settings(assumed_speed_mph=0))["events"][0]
+        self.assertEqual(stopped["distance_ft"], 0)
+        self.assertEqual(event["distance_source"], "assumed_constant_speed_x_candidate_window")
+        for speed in [-1, float("nan"), float("inf")]:
+            with self.assertRaises(ValueError):
+                analyze(ride, Settings(assumed_speed_mph=speed))
+
     def test_boundaries_and_stationary_are_not_jumps(self):
         ride = synthetic_ride()
         ride.accel[:, 2] = 1
@@ -107,6 +123,20 @@ class DetectionTests(unittest.TestCase):
 
 
 class RecordingTests(unittest.TestCase):
+    def test_old_session_defaults_to_18mph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            csv_path = Path(directory) / "ride.csv"
+            write_csv(csv_path)
+            ride = load_ride(csv_path)
+            session_path = Path(directory) / "old.json"
+            settings = Settings()
+            data = make_session(ride, settings, analyze(ride, settings), [], [], [0, 4], "", session_path)
+            del data["settings"]["assumed_speed_mph"]
+            atomic_json(session_path, data)
+            _, _, restored, result = read_session(session_path)
+            self.assertEqual(restored.assumed_speed_mph, 18)
+            self.assertAlmostEqual(result["events"][0]["distance_ft"], 13.728)
+
     def test_quantized_250hz_preserves_samples_and_order(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "quantized.csv"

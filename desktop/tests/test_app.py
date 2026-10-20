@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QSettings
 
 from bike_workbench.app import Workbench
 from bike_workbench.session import read_session
@@ -22,6 +23,9 @@ class AppTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.csv = Path(self.directory.name) / "ride.csv"
         write_csv(self.csv)
+        preferences = QSettings(str(Path(self.directory.name) / "preferences.ini"), QSettings.IniFormat)
+        self.preferences_patch = patch("bike_workbench.app.QtCore.QSettings", return_value=preferences)
+        self.preferences_patch.start()
         self.window = Workbench()
         self.window.open_csv(path=self.csv)
 
@@ -31,6 +35,7 @@ class AppTests(unittest.TestCase):
         self.window.dirty = False
         self.window.close()
         self.window.deleteLater()
+        self.preferences_patch.stop()
         self.directory.cleanup()
 
     def test_select_label_compare_save_reload(self):
@@ -58,6 +63,21 @@ class AppTests(unittest.TestCase):
         self.assertEqual(len(w.snapshots), 1)
         self.assertIsNotNone(w.baseline)
         self.assertFalse(w.dirty)
+
+    def test_distance_column_updates_and_speed_survives_save(self):
+        w = self.window
+        self.assertEqual(w.event_table.horizontalHeaderItem(4).text(), "Est. ft*")
+        self.assertEqual(w.event_table.item(0, 4).text(), "13.7")
+        w.controls["assumed_speed_mph"].setValue(36)
+        w.timer.stop()
+        self.assertTrue(w.recalculate())
+        self.assertEqual(w.event_table.item(0, 4).text(), "27.5")
+        self.assertIn("36 mph", w.event_table.item(0, 4).toolTip())
+        path = Path(self.directory.name) / "speed.json"
+        self.assertTrue(w.write_session(path))
+        _, _, settings, result = read_session(path)
+        self.assertEqual(settings.assumed_speed_mph, 36)
+        self.assertAlmostEqual(result["events"][0]["distance_ft"], 27.456)
 
     def test_invalid_settings_cannot_autosave_stale_results(self):
         w = self.window

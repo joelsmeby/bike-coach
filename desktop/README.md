@@ -28,7 +28,8 @@ If the recording moves, opening its session prompts you to locate the original. 
 - Dashed horizontal line: core threshold; dotted line: expansion threshold.
 - Triangles: first raw load crossing above the impact threshold within the search window. These are impact estimates, not proven first tire contact.
 - Crosses: samples at the assumed acceleration rail. An asterisk by impact g means at least one sample in the event/search interval was range-flagged, not necessarily that the displayed crossing itself clipped.
-- Window duration includes one nominal sample interval. It is an unloading estimate, not verified airtime. No speed, jump distance or height is inferred.
+- Window duration includes one nominal sample interval. It is an unloading estimate, not verified airtime. Speed and height are not inferred; the separate distance column uses the explicit constant-speed assumption.
+- **Est. ft***: distance estimated from the candidate window and the editable **Distance estimate → Assumed speed** control (18 mph by default). At 18 mph, distance is 26.4 feet per second of candidate duration. Hover a distance for meters, speed and duration. This is an assumed-speed estimate, not measured airborne distance; GPS speed is not yet read. Changing the speed updates distances without changing detections. The speed and distances are included in saved sessions, comparison settings and headless analysis results. Older sessions default to 18 mph.
 
 ## Analysis and timing
 
