@@ -91,7 +91,7 @@ class Workbench(W.QMainWindow):
         layout = W.QVBoxLayout(central)
         layout.setContentsMargins(14, 10, 14, 8)
         header = W.QHBoxLayout()
-        title = W.QLabel("JUMP WORKBENCH")
+        title = W.QLabel("JUMP WORKBENCH · v" + __version__)
         title.setStyleSheet("font-size:18px;font-weight:500;color:#70d5d0;")
         header.addWidget(title)
         self.file_label = W.QLabel("No recording loaded")
@@ -115,6 +115,7 @@ class Workbench(W.QMainWindow):
         controls_layout = W.QVBoxLayout(panel)
         controls_layout.setContentsMargins(0, 0, 12, 0)
         self.controls = {}
+        self.chart_controls = {}
 
         def group(title):
             box = W.QGroupBox(title)
@@ -144,6 +145,26 @@ class Workbench(W.QMainWindow):
             widget.valueChanged.connect(self.settings_changed)
             self.controls[key] = widget
 
+        f = group("Fixed gyro chart scales")
+        for key, label, default in [("gyro_half_span_dps", "Rotation ± · °/s", 100.),
+                                     ("vibration_max_dps", "Vibration max · °/s", 50.)]:
+            control = W.QDoubleSpinBox()
+            control.setRange(.1, 10000.)
+            control.setDecimals(1)
+            control.setSingleStep(10.)
+            control.setValue(default)
+            control.valueChanged.connect(self.chart_scale_changed)
+            self.chart_controls[key] = control
+            f.addRow(label, control)
+        for label, visible in [("Fit visible gyro once", True), ("Fit full recording once", False)]:
+            button = W.QPushButton(label)
+            button.clicked.connect(lambda checked=False, v=visible: self.fit_gyro_scales(v))
+            f.addRow(button)
+        self.scale_note = W.QLabel("Scales stay fixed while zooming. Fit once or enter a range to inspect smaller signals.")
+        self.scale_note.setWordWrap(True)
+        self.scale_note.setMinimumWidth(0)
+        self.scale_note.setSizePolicy(W.QSizePolicy.Ignored, W.QSizePolicy.Preferred)
+        f.addRow(self.scale_note)
         f = group("Filter load magnitude")
         combo(f, "filter", "Method", [("Median (centered)", "median"), ("Moving average (centered)", "mean"),
                                       ("Butterworth (offline)", "butterworth"), ("Raw / no filter", "raw")])
@@ -224,16 +245,18 @@ class Workbench(W.QMainWindow):
         self.overview.setMaximumHeight(135)
         self.load_plot = self.new_plot("Raw / filtered load · drag orange handles to label an interval", "Load", "g")
         self.gyro_plot = self.new_plot("Angular velocity · device axes", "Rate", "°/s")
-        for plot, stretch in [(self.overview, 1), (self.load_plot, 3), (self.gyro_plot, 2)]:
+        self.vibration_plot = self.new_plot("Gyro vibration · lower is smoother", "Vibration", "°/s")
+        for plot, stretch in [(self.overview, 1), (self.load_plot, 3), (self.gyro_plot, 2), (self.vibration_plot, 2)]:
             gl.addWidget(plot, stretch)
         self.gyro_plot.setXLink(self.load_plot)
+        self.vibration_plot.setXLink(self.load_plot)
         self.load_plot.addLegend(offset=(8, 8))
         self.gyro_plot.addLegend(offset=(8, 8))
         self.raw_curve = self.load_plot.plot(pen=pg.mkPen(COLORS["raw"], width=1), name="Raw")
         self.clean_curve = self.load_plot.plot(pen=pg.mkPen(COLORS["clean"], width=2), name="Filtered")
         self.baseline_curve = self.load_plot.plot(pen=pg.mkPen(COLORS["baseline"], width=1.5, style=QtCore.Qt.DashLine), name="Comparison")
         self.gyro_curves = [self.gyro_plot.plot(pen=pg.mkPen(COLORS[k], width=1), name=k.upper()) for k in ("x", "y", "z")]
-        self.vibration_curve = self.gyro_plot.plot(pen=pg.mkPen("#f5e39e", width=2, style=QtCore.Qt.DashLine), name="Gyro vibration")
+        self.vibration_curve = self.vibration_plot.plot(pen=pg.mkPen("#f5e39e", width=2), fillLevel=0, brush=pg.mkBrush(245, 227, 158, 30))
         self.overview_curve = self.overview.plot(pen=pg.mkPen(COLORS["raw"], width=1))
         self.clip_marks = pg.ScatterPlotItem(symbol="x", size=7, pen=pg.mkPen(COLORS["clip"]))
         self.impact_marks = pg.ScatterPlotItem(symbol="t1", size=12, brush=COLORS["clean"], pen=None)
@@ -252,7 +275,7 @@ class Workbench(W.QMainWindow):
         self.load_plot.addItem(self.selection)
         self.selection.sigRegionChanged.connect(self.selection_changed)
         self.crosshairs = []
-        for plot in (self.load_plot, self.gyro_plot):
+        for plot in (self.load_plot, self.gyro_plot, self.vibration_plot):
             line = pg.InfiniteLine(angle=90, pen=pg.mkPen("#8397aa", style=QtCore.Qt.DotLine))
             plot.addItem(line, ignoreBounds=True)
             self.crosshairs.append(line)
@@ -426,6 +449,7 @@ class Workbench(W.QMainWindow):
         self.apply_settings(settings)
         self.zoom_region.setBounds((0, float(result["time"][-1])))
         self.selection.setBounds((0, float(result["time"][-1])))
+        self.apply_chart_scales({})
         self.fix_vertical_scales()
         self.file_label.setText(ride.path.name)
         self.file_label.setToolTip(str(ride.path))
@@ -447,6 +471,7 @@ class Workbench(W.QMainWindow):
                     return
                 saved, ride, settings, result = read_session(path, replacement)
             self.install_ride(ride, settings, result)
+            self.apply_chart_scales(saved.get("chart_scales", {}))
             self.labels, self.snapshots = saved.get("labels", []), saved.get("snapshots", [])
             code_changed = saved.get("algorithm_version") != ALGORITHM_VERSION or saved.get("analysis_sha256", algorithm_fingerprint()) != algorithm_fingerprint()
             if code_changed:
@@ -539,9 +564,13 @@ class Workbench(W.QMainWindow):
         legend = self.gyro_plot.plotItem.legend
         for i, curve in enumerate(self.gyro_curves):
             curve.setData(t, gyro[:, i], connect=breaks)
-        for (_, label), name in zip(legend.items, names + ["Vibration · " + r["gyro_channel"]]):
+        for (_, label), name in zip(legend.items, names):
             label.setText(name)
         self.vibration_curve.setData(t, r["gyro_vibration"], connect="finite")
+        available = np.isfinite(r["gyro_vibration"]).any()
+        detail = r["gyro_channel"] + " · lower is smoother" if available else r["gyro_channel"] + " · no usable vibration data"
+        self.vibration_plot.setTitle("Gyro vibration · " + detail)
+        self.update_scale_note()
         clip = r["clipped"]
         self.clip_marks.setData(t[clip], r["raw"][clip])
         hits = [e for e in r["events"] if e["impact_s"] is not None]
@@ -552,7 +581,7 @@ class Workbench(W.QMainWindow):
             plot.removeItem(mark)
         self._marks.clear()
         for event in r["events"]:
-            for plot in [self.load_plot, self.overview]:
+            for plot in [self.load_plot, self.overview, self.gyro_plot, self.vibration_plot]:
                 mark = pg.LinearRegionItem((event["start_s"], event["end_s"]), movable=False,
                                            brush=pg.mkBrush(112, 213, 208, 22), pen=pg.mkPen(None))
                 mark.setZValue(-5)
@@ -657,17 +686,71 @@ class Workbench(W.QMainWindow):
             self.overview.setXRange(0, self.result["time"][-1], padding=0)
 
     def fix_vertical_scales(self):
-        """Use whole-recording bounds, independent of time zoom and filters."""
+        """Lock load to full-recording bounds and gyro charts to chosen view ranges."""
         if not self.ride:
             return
         load_max = max(1.0, float(self.ride.load.max()) * 1.08)
-        gyro_max = max(1.0, float(np.linalg.norm(self.ride.gyro, axis=1).max()) * 1.08)
+        gyro_max = self.chart_controls["gyro_half_span_dps"].value()
+        vibration_max = self.chart_controls["vibration_max_dps"].value()
         for plot, low, high in [(self.load_plot, 0.0, load_max), (self.overview, 0.0, load_max),
-                                (self.gyro_plot, -gyro_max, gyro_max)]:
+                                (self.gyro_plot, -gyro_max, gyro_max), (self.vibration_plot, 0., vibration_max)]:
             view = plot.getViewBox()
             view.enableAutoRange(axis=pg.ViewBox.YAxis, enable=False)
             view.setLimits(yMin=low, yMax=high, minYRange=high - low, maxYRange=high - low)
             view.setYRange(low, high, padding=0)
+
+    def apply_chart_scales(self, values):
+        defaults = {"gyro_half_span_dps": 100., "vibration_max_dps": 50.}
+        if not isinstance(values, dict):
+            values = {}
+        for key, default in defaults.items():
+            value = values.get(key, default)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or not .1 <= value <= 10000:
+                value = default
+            widget = self.chart_controls[key]
+            widget.blockSignals(True)
+            widget.setValue(value)
+            widget.blockSignals(False)
+        self.fix_vertical_scales()
+        self.update_scale_note()
+
+    def chart_scale_changed(self):
+        self.fix_vertical_scales()
+        self.update_scale_note()
+        self.mark_dirty()
+
+    def update_scale_note(self):
+        if not self.result:
+            return
+        rates = bike_frame(self.ride)
+        if rates is None:
+            rates = self.ride.gyro
+        rate_limit = self.chart_controls["gyro_half_span_dps"].value()
+        vibration_limit = self.chart_controls["vibration_max_dps"].value()
+        rate_out = np.count_nonzero(np.any(np.abs(rates) > rate_limit, axis=1))
+        vibration_out = np.count_nonzero(self.result["gyro_vibration"] > vibration_limit)
+        self.scale_note.setText(f"Fixed view ranges. Outside view: {rate_out:,} rotation samples; {vibration_out:,} vibration samples. Fit once to show them; source values stay intact.")
+
+    def fit_gyro_scales(self, visible=True):
+        if not self.result:
+            return
+        t = self.result["time"]
+        mask = np.ones(len(t), dtype=bool)
+        if visible:
+            low, high = self.load_plot.viewRange()[0]
+            mask = (t >= low) & (t <= high)
+        if not mask.any():
+            return
+        rates = bike_frame(self.ride)
+        if rates is None:
+            rates = self.ride.gyro
+        rough = self.result["gyro_vibration"][mask]
+        finite = rough[np.isfinite(rough)]
+        # Round up to a tenth so the saved/displayed scale never crops its fitted peak.
+        values = {"gyro_half_span_dps": max(.1, float(np.ceil(np.abs(rates[mask]).max() * 1.1 * 10) / 10)),
+                  "vibration_max_dps": max(.1, float(np.ceil(finite.max() * 1.1 * 10) / 10)) if len(finite) else self.chart_controls["vibration_max_dps"].value()}
+        self.apply_chart_scales(values)
+        self.mark_dirty()
 
     def event_selected(self):
         row = self.event_table.currentRow()
@@ -804,6 +887,7 @@ class Workbench(W.QMainWindow):
                 raise ValueError("Settings have not produced a valid analysis. Correct them before saving.")
             value = make_session(self.ride, settings, self.result, self.labels, self.snapshots,
                                  self.load_plot.viewRange()[0], self.notes.toPlainText(), path)
+            value["chart_scales"] = {key: widget.value() for key, widget in self.chart_controls.items()}
             value["selection"] = [float(v) for v in self.selection.getRegion()]
             value["catalog_path"] = str(self.catalog.path)
             value["catalog_entries"] = [e for e in self.catalog.entries if e.get("observation", {}).get("recording_sha256") == self.ride.sha256]

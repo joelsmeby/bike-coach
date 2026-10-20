@@ -79,6 +79,64 @@ class AppTests(unittest.TestCase):
         self.assertEqual(settings.assumed_speed_mph, 36)
         self.assertAlmostEqual(result["events"][0]["distance_ft"], 27.456)
 
+    def test_separate_vibration_plot_and_fixed_gyro_scales_survive_navigation(self):
+        w = self.window
+        self.assertIsNot(w.vibration_curve.getViewBox(), w.gyro_plot.getViewBox())
+        self.assertIs(w.vibration_curve.getViewBox(), w.vibration_plot.getViewBox())
+        w.chart_controls["gyro_half_span_dps"].setValue(75)
+        w.chart_controls["vibration_max_dps"].setValue(30)
+        for plot, bounds in ((w.gyro_plot, (-75, 75)), (w.vibration_plot, (0, 30))):
+            self.assertEqual(tuple(plot.viewRange()[1]), bounds)
+        w.load_plot.setXRange(1.1, 1.3, padding=0)
+        w.vibration_plot.getViewBox().scaleBy((.5, .1))
+        w.gyro_plot.getViewBox().translateBy(y=500)
+        w.controls["filter"].setCurrentIndex(w.controls["filter"].findData("mean"))
+        w.timer.stop()
+        self.assertTrue(w.recalculate())
+        w.full_ride()
+        self.app.processEvents()
+        self.assertEqual(tuple(w.gyro_plot.viewRange()[1]), (-75, 75))
+        self.assertEqual(tuple(w.vibration_plot.viewRange()[1]), (0, 30))
+        self.assertFalse(w.vibration_plot.getViewBox().autoRangeEnabled()[1])
+
+    def test_chart_scales_save_reload_and_invalid_values_default(self):
+        w = self.window
+        w.chart_controls["gyro_half_span_dps"].setValue(85)
+        w.chart_controls["vibration_max_dps"].setValue(40)
+        path = Path(self.directory.name) / "scales.json"
+        self.assertTrue(w.write_session(path))
+        w.apply_chart_scales({})
+        self.assertEqual(w.chart_controls["gyro_half_span_dps"].value(), 100)
+        w.dirty = False
+        w.open_session(path=path)
+        self.assertEqual(w.chart_controls["gyro_half_span_dps"].value(), 85)
+        self.assertEqual(w.chart_controls["vibration_max_dps"].value(), 40)
+        w.apply_chart_scales({"gyro_half_span_dps": float("nan"), "vibration_max_dps": -10})
+        self.assertEqual(w.chart_controls["gyro_half_span_dps"].value(), 100)
+        self.assertEqual(w.chart_controls["vibration_max_dps"].value(), 50)
+
+    def test_fit_gyro_once_uses_visible_data_and_then_stays_locked(self):
+        import numpy as np
+        from test_gyro import ride
+        from bike_workbench.analysis import Settings, analyze
+        w = self.window
+        r = ride()
+        r.gyro[10, 0] = 400  # Outside the jump's visible interval.
+        w.install_ride(r, Settings(gyro_range_dps=2000), analyze(r, Settings(gyro_range_dps=2000)))
+        self.assertTrue(w.recalculate())
+        w.load_plot.setXRange(1.1, 1.4, padding=0)
+        w.fit_gyro_scales(True)
+        visible_span = w.chart_controls["gyro_half_span_dps"].value()
+        self.assertLess(visible_span, 100)
+        vibration_span = w.chart_controls["vibration_max_dps"].value()
+        w.full_ride()
+        self.assertEqual(w.chart_controls["gyro_half_span_dps"].value(), visible_span)
+        self.assertEqual(w.chart_controls["vibration_max_dps"].value(), vibration_span)
+        w.fit_gyro_scales(False)
+        self.assertGreater(w.chart_controls["gyro_half_span_dps"].value(), 400)
+        finite = w.result["gyro_vibration"]
+        self.assertGreater(w.chart_controls["vibration_max_dps"].value(), np.nanmax(finite))
+
     def test_gyro_support_curve_controls_and_save_reload(self):
         import numpy as np
         from test_gyro import ride

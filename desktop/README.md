@@ -1,6 +1,6 @@
 # Bike Coach desktop jump workbench
 
-A native, local analysis app for developing jump detection against ride recordings. It runs independently of chat, the phone webpage, and the bike. There is no server or data upload. Version 0.1 is an analysis workbench, not a physically validated jump detector.
+A native, local analysis app for developing jump detection against ride recordings. It runs independently of chat, the phone webpage, and the bike. There is no server or data upload. Version 0.2 is an analysis workbench, not a physically validated jump detector.
 
 ## Open on Joel's Mac
 
@@ -11,7 +11,7 @@ On another Mac, install Python 3.12 or later and double-click **Setup Bike Coach
 ## Use it
 
 1. **Open recording** loads a Bike Coach CSV. The header comment containing calibration is preserved as metadata. Acceleration is interpreted as mg and gyro as degrees/s. The CSV is never modified.
-2. Select a candidate row to zoom. Drag the selection in the top overview to inspect any part of the ride. Load and gyro plots share the time axis. Vertical scales are fixed from the entire recording, with headroom for its largest signals; gyro is symmetric around zero. Mouse zoom and pan change time only, so heights remain comparable across intervals and filter changes. Right-click a plot for view options; click legend entries to hide/show curves.
+2. Select a candidate row to zoom. Drag the selection in the top overview to inspect any part of the ride. Load and gyro plots share the time axis. Load uses fixed full-recording bounds. Rotation and gyro vibration now have separate plots and fixed editable scales: initially ±100°/s for rotation and 0–50°/s for vibration. Mouse zoom and pan change time only, so heights remain comparable across intervals and filter changes. Right-click a plot for view options; click legend entries to hide/show curves.
 3. **Save comparison run** before changing settings. The saved filtered load and candidate boundaries appear dashed purple. Switch between saved runs or restore their settings. Comparison settings are rerun under the current algorithm; original results and version remain in JSON.
 4. Change the filter or detector controls. Detection reruns automatically. Median and moving-average windows are in samples; 3 samples is about 60 ms at 50 Hz, about 12 ms at 250 Hz. Butterworth cutoff is in Hz.
 5. Select a candidate, then drag the orange handles to your estimated takeoff and touchdown. Add a note and choose **Confirm jump** or **Not a jump**. To mark a miss, navigate to it, drag the orange handles and choose **Mark missed jump**. Labels are independent of detector rows and survive filter changes. Overlapping labels must be removed before replacing them.
@@ -47,11 +47,17 @@ When calibration contains a valid orthonormal frame, gyro rates are projected on
 
 Label matching uses one-to-one interval overlap (IoU ≥ 0.1). Counts describe coverage of the examples you labeled. Unmatched detections are unreviewed, not proven false positives; this is not overall accuracy. A comparison across different clock assumptions is disabled.
 
+## Fixed gyro view ranges
+
+At the top of the sidebar, **Fixed gyro chart scales** sets the rotation half-range and vibration maximum independently. These are display ranges, separate from sensor clipping ranges. Zooming, panning, filtering and **Full ride** preserve the chosen vertical bounds. **Fit visible gyro once** fits both gyro plots to the current visible time interval with 10% headroom, then locks the resulting bounds; **Fit full recording once** fits the entire recording. The panel reports samples outside the chosen display ranges so a tight view cannot silently suggest those values are absent. Source values are retained.
+
+Chart ranges save/autosave with the session under `chart_scales`. Older sessions start at ±100°/s and 0–50°/s; use fit or enter different bounds when needed. The vibration chart has its own positive Y axis so its smaller values remain visible beside larger rotation rates. The app header shows v0.2.0 to identify this interface update. Save, fully quit and reopen the app to load new source; opening an already-running app again does not reload its Python modules.
+
 ## Gyro support for takeoff and landing
 
 **Gyro support** adds supporting evidence without changing candidate counts, boundaries, joining, impact selection or distances. The default uses all three device gyro axes, making the vibration measure independent of mounting direction. **Bike pitch only** requires a valid saved bike frame; an unavailable frame does not silently substitute a device axis. This measures rotation-rate vibration, not pitch angle.
 
-A dashed yellow **Vibration** curve shows local RMS (root mean square: typical fluctuation size) after removing slower rotation with a centered linear trend. The default trend window is about 0.12 s, followed by a 0.06 s RMS window; each is rounded to odd sample counts with minimum 5/3 samples. Processing uses an evenly spaced grid inside each continuous segment. Recording edges, gaps and filter neighborhoods touching gyro clipping remain unavailable. At less than 20 Hz or with too few samples, evidence is unavailable. Like the load filters, this offline method uses neighboring samples and blurs transition timing.
+A separate yellow **Gyro vibration** chart shows local RMS (root mean square: typical fluctuation size) after removing slower rotation with a centered linear trend. The default trend window is about 0.12 s, followed by a 0.06 s RMS window; each is rounded to odd sample counts with minimum 5/3 samples. Processing uses an evenly spaced grid inside each continuous segment. Recording edges, gaps and filter neighborhoods touching gyro clipping remain unavailable. At less than 20 Hz or with too few samples, evidence is unavailable. Like the load filters, this offline method uses neighboring samples and blurs transition timing.
 
 For each candidate, compare vibration inside the window to separate 0.30 s trail intervals before and after it, excluding filter transition margins. **Flight/trail ratio ≤ 0.65** marks a boundary as supported when flight vibration is at least 35% lower. Context below **Min. trail vibration** (default 1°/s) is inconclusive: a quiet trail cannot establish flight. Overall score is the smaller of the two percentage reductions, clipped to 0–100. **Supports** requires both boundaries; **mixed** means one passes; **partial** means only one boundary could be assessed; **unavailable** means neither can be assessed. Low scores are not evidence that a candidate is false. These are heuristics, not jump probabilities.
 
