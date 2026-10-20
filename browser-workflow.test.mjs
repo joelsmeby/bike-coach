@@ -5,7 +5,7 @@ import {dirname,join,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
-const root=dirname(fileURLToPath(import.meta.url));
+const root=process.env.BIKECOACH_WEB_ROOT||dirname(fileURLToPath(import.meta.url));
 const server=createServer(async(req,res)=>{try{const path=new URL(req.url,'http://localhost').pathname;const bytes=await readFile(join(root,path==='/'?'index.html':path));res.setHeader('Content-Type',({'.js':'text/javascript','.mjs':'text/javascript','.html':'text/html','.css':'text/css'})[extname(path)]||'text/html');res.end(bytes);}catch{res.statusCode=404;res.end();}});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const browser=await chromium.launch({headless:true,executablePath:process.env.BIKECOACH_CHROMIUM||undefined});
