@@ -3,7 +3,9 @@ import {fileURLToPath} from 'node:url';
 
 const cwd = fileURLToPath(new URL('../', import.meta.url));
 const runs = [
+  ['analysis-engine.test.mjs', {}],
   ['analyzer-chart.test.mjs', {}],
+  ['analysis-web.test.mjs', {}],
   ['browser-workflow.test.mjs', {BIKECOACH_TEST_INFO: 'BIKECOACH,FW=0.2.9,STATE=IDLE,FILE='}],
   ['browser-workflow.test.mjs', {BIKECOACH_TEST_INFO: 'BIKECOACH,FW=0.2.11,TRANSFER=LEGACY6,FILES=1,STATE=IDLE,FILE='}],
 ];

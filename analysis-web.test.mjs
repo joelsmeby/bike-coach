@@ -1,0 +1,43 @@
+import {createServer} from 'node:http';
+import {readFile} from 'node:fs/promises';
+import {dirname,join,extname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {parseRide,analyzeRide} from './analysis-engine.mjs';
+const root=process.env.BIKECOACH_WEB_ROOT||dirname(fileURLToPath(import.meta.url));
+const server=createServer(async(req,res)=>{try{const path=new URL(req.url,'http://localhost').pathname;res.setHeader('Content-Type',({'.mjs':'text/javascript','.js':'text/javascript','.html':'text/html'})[extname(path)]||'text/plain');res.end(await readFile(join(root,path==='/'?'analyzer.html':path)));}catch{res.statusCode=404;res.end();}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({headless:true,executablePath:process.env.BIKECOACH_CHROMIUM||undefined});
+try{
+ const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const rows=['rtcDate,rtcTime,aX,aY,aZ,gX,gY,gZ,mX,mY,mZ,imu_degC,output_Hz,'];
+ for(let i=0;i<=200;i++){const t=i/50,z=t>=1&&t<=1.5?100:t===1.52?2500:1000,noise=t>=1&&t<=1.5?0:18*Math.sin(2*Math.PI*12*t);rows.push(`01/01/2000,00:00:${t.toFixed(2).padStart(5,'0')},0,0,${z},0,${40+20*t+noise},0,0,0,0,20,50,`);}
+ const csv=rows.join('\n'),expected=analyzeRide(parseRide(csv)).events[0];
+ await page.goto(`http://127.0.0.1:${server.address().port}/analyzer.html`);
+ await page.evaluate(text=>window.bikeCoachNativeLoadLog({text,name:'synthetic.csv'}),csv);
+ await page.waitForFunction(()=>document.querySelectorAll('#jumpTable tr[data-jump-start]').length===1);
+ const values=await page.locator('#jumpTable tr').first().locator('td').allTextContents();
+ assert.equal(values[1],expected.window_s.toFixed(3));assert.equal(values[2],expected.height_ft.toFixed(1));assert.equal(values[3],expected.distance_ft.toFixed(1));assert.match(values[4],/18 mph assumed/);
+ assert.match(await page.locator('#jumpTable tr').getAttribute('title'),/equal takeoff\/landing elevation/);
+ await page.locator('#toggleJumpTable').click();assert.equal(await page.locator('#jumpSection').isVisible(),false);
+ await page.locator('#toggleJumpTable').click();assert.equal(await page.locator('#jumpSection').isVisible(),true);
+ await page.selectOption('#motionInput','off');
+ const old=analyzeRide(parseRide(csv),{gyro_detection:'off'}).events[0];
+ await page.waitForFunction(v=>document.querySelector('#jumpTable td')?.textContent.startsWith(v),old.start_s.toFixed(2));
+ await page.locator('#assumedSpeed').fill('36');await page.locator('#assumedSpeed').dispatchEvent('change');
+ assert.equal((await page.locator('#jumpTable tr td').allTextContents())[3],(old.distance_ft*2).toFixed(1));
+ const downloadPromise=page.waitForEvent('download');await page.locator('#exportAnalysisSettings').click();const download=await downloadPromise;
+ const exported=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(exported.settings.assumed_speed_mph,36);
+ await page.locator('#importAnalysisSettings').setInputFiles({name:'desktop-settings.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({settings:{filter:'raw',assumed_speed_mph:12,gyro_detection:'off'}}))});
+ assert.equal(await page.locator('#assumedSpeed').inputValue(),'12');assert.equal(await page.locator('#jumpFilter').inputValue(),'raw');
+ const epoch=1700000000000,id='0123456789abcdef',meta={id,startBoardMs:200},gps={schemaVersion:1,id,sync:{phoneEpochMs:epoch-100,boardMs:100,uncertaintyMs:25},startedEpochMs:epoch,endEpochMs:null,events:[],points:Array.from({length:41},(_,i)=>({timestamp:epoch+i*100,latitude:47,longitude:-122,accuracy:5,speed:8,segment:0}))};
+ const gpsCsv='# BikeCoachRide='+JSON.stringify(meta)+'\n# BikeCoachGPS='+JSON.stringify(gps)+'\n'+csv;
+ await page.evaluate(text=>window.bikeCoachNativeLoadLog({text,name:'gps.csv'}),gpsCsv);
+ assert.match((await page.locator('#jumpTable tr td').allTextContents())[4],/GPS/);
+ await page.locator('#rotationScale').fill('40');await page.locator('#vibrationScale').fill('10');
+ await page.getByRole('button',{name:'Zoom in',exact:true}).first().click();assert.equal(await page.locator('#rotationScale').inputValue(),'40');assert.equal(await page.locator('#vibrationScale').inputValue(),'10');
+ await page.screenshot({path:process.env.BIKECOACH_SCREENSHOT||'/tmp/bike-web-analysis.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth);
+ assert.deepEqual(errors,[]);console.log('PASS: shared jump metrics, gyro/acceleration switch, GPS source, settings exchange, fixed scale inputs, collapse and mobile layout.');
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
