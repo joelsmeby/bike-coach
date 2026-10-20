@@ -159,6 +159,8 @@ class Workbench(W.QMainWindow):
             ("max_window_s", "Max. window · s", .05, 10., .1),
             ("impact_g", "Impact above · g", .1, 30., .1),
             ("impact_search_s", "Impact search · s", .02, 2., .02),
+            ("merge_gap_s", "Join gaps up to · s", 0., 1., .02),
+            ("landing_hold_s", "Landing hold · s", .02, .5, .02),
         ]:
             spin(f, *args)
         f = group("Distance estimate")
@@ -563,6 +565,8 @@ class Workbench(W.QMainWindow):
                       ", ".join(overlap) or "Unreviewed"]
             if e["impact_s"] is not None and sum(other["impact_s"] == e["impact_s"] for other in r["events"]) > 1:
                 values[-1] += " · shared impact"
+            if e["joined_windows"] > 1:
+                values[-1] += f" · joined {e['joined_windows']} windows"
             for column, value in enumerate(values):
                 item = W.QTableWidgetItem(str(value))
                 item.setToolTip(f"{e['distance_ft']:.1f} ft / {e['distance_m']:.1f} m, assuming {settings.assumed_speed_mph:g} mph\n"

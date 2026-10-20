@@ -33,7 +33,9 @@ If the recording moves, opening its session prompts you to locate the original. 
 
 ## Analysis and timing
 
-The detector requires a sustained low-load core, expands it while filtered magnitude remains below the higher threshold, and optionally requires subsequent raw loading. It rejects windows that touch a recording/gap boundary and windows longer than the configured maximum. Multiple cores inside the same expanded window become one candidate. A low-load window is not sufficient evidence that both wheels left the ground.
+The detector requires a sustained low-load core and expands it while filtered magnitude remains below the higher threshold. Nearby windows are then joined when their separation is at most **Join gaps up to** (default 0.20 s) and there is no sustained support-level loading between them. Sustained support means filtered load at least the higher of 0.8 g and the expansion threshold for **Landing hold** (default 0.08 s). Set the join gap to zero to disable joining. This is a heuristic for split flights, not proof of contact; it can still merge genuinely separate short hops.
+
+After joining, the detector optionally requires subsequent raw loading after the final window. It rejects intervals touching recording/gap boundaries and intervals longer than the configured maximum; it never joins across missing-data gaps. Joined intervals retain all low-load cores, report how many windows were joined in the Review column, and recalculate duration, final impact and distance across the full interval, including the interruption. A low-load window is not sufficient evidence that both wheels left the ground, and the final impact crossing is still an estimate of touchdown.
 
 Filters act on acceleration magnitude, not each axis. Centered median and mean filters use neighboring samples; a second-order Butterworth uses forward/backward filtering (effective order four, zero phase). These are offline methods that can change transition shapes. Butterworth first interpolates each continuous segment to an evenly spaced grid; filters never cross configured gaps. Very short segments stay unfiltered and are reported. Raw data remain available.
 

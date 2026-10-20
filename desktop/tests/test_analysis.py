@@ -61,6 +61,43 @@ class DetectionTests(unittest.TestCase):
         self.assertGreater(clean["raw"][62], 1)
         self.assertLess(clean["filtered"][62], .4)
 
+    def split_event(self, sustained_contact=False):
+        ride = synthetic_ride()
+        ride.accel[:, 2] = 1
+        t = ride.time
+        ride.accel[(t >= 1) & (t <= 1.2), 2] = .1
+        ride.accel[(t > 1.2) & (t < 1.34), 2] = 1.1 if sustained_contact else .7
+        ride.accel[np.isclose(t, 1.28), 2] = 1.7
+        ride.accel[(t >= 1.34) & (t <= 1.6), 2] = .1
+        ride.accel[np.isclose(t, 1.62), 2] = 2.8
+        return ride
+
+    def test_short_interruption_joins_and_uses_final_impact_and_distance(self):
+        result = analyze(self.split_event(), Settings(filter="raw"))
+        self.assertEqual(len(result["events"]), 1)
+        event = result["events"][0]
+        self.assertEqual(event["joined_windows"], 2)
+        self.assertEqual(len(event["cores"]), 2)
+        self.assertAlmostEqual(event["start_s"], 1)
+        self.assertAlmostEqual(event["end_s"], 1.6)
+        self.assertAlmostEqual(event["impact_s"], 1.62)
+        self.assertAlmostEqual(event["distance_ft"], 26.4 * .62)
+
+    def test_sustained_contact_preserves_two_close_events(self):
+        result = analyze(self.split_event(True), Settings(filter="raw"))
+        self.assertEqual(len(result["events"]), 2)
+        self.assertTrue(all(e["joined_windows"] == 1 for e in result["events"]))
+
+    def test_join_can_be_disabled_and_respects_maximum_window(self):
+        ride = self.split_event()
+        self.assertEqual(len(analyze(ride, Settings(filter="raw", merge_gap_s=0))["events"]), 2)
+        self.assertEqual(len(analyze(ride, Settings(filter="raw", max_window_s=.5))["events"]), 2)
+
+    def test_long_interruption_is_not_joined(self):
+        ride = self.split_event()
+        result = analyze(ride, Settings(filter="raw", merge_gap_s=.1))
+        self.assertEqual(len(result["events"]), 2)
+
     def test_gap_never_connects_a_flight_or_impact(self):
         ride = synthetic_ride()
         ride.time[63:] += 1

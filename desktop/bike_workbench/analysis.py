@@ -14,7 +14,7 @@ from scipy.ndimage import median_filter, uniform_filter1d
 from scipy.optimize import linear_sum_assignment
 from scipy.signal import butter, sosfiltfilt
 
-ALGORITHM_VERSION = "load-sequence/1.1.0"
+ALGORITHM_VERSION = "load-sequence/1.2.0"
 
 
 def algorithm_fingerprint():
@@ -38,6 +38,8 @@ class Settings:
     gyro_range_dps: float = 250.0
     uniform_hz: float = 0.0
     assumed_speed_mph: float = 18.0
+    merge_gap_s: float = 0.2
+    landing_hold_s: float = 0.08
 
     def validate(self):
         numeric = [v for v in asdict(self).values() if isinstance(v, (int, float))]
@@ -59,6 +61,8 @@ class Settings:
             raise ValueError("Sensor ranges and impact threshold must be positive.")
         if self.assumed_speed_mph < 0:
             raise ValueError("Assumed speed cannot be negative.")
+        if self.merge_gap_s < 0 or self.landing_hold_s <= 0:
+            raise ValueError("Join gap cannot be negative; landing hold must be positive.")
 
 
 @dataclass
@@ -195,6 +199,7 @@ def analyze(ride: Ride, settings: Settings):
     events = []
     for start, end in segments(time, settings.gap_s):
         dt = float(np.mean(np.diff(time[start:end]))) if end - start > 1 else 0
+        windows = []
         low = clean[start:end] < settings.core_g
         edges = np.diff(np.r_[False, low, False].astype(int))
         for cs, ce in zip(np.flatnonzero(edges == 1) + start, np.flatnonzero(edges == -1) + start - 1):
@@ -210,19 +215,47 @@ def analyze(ride: Ride, settings: Settings):
             # Require observable entry/exit; segment boundaries cannot prove a jump.
             if left == start or right == end - 1:
                 continue
+            core = [float(time[cs]), float(time[ce])]
+            if windows and windows[-1]["left"] == left and windows[-1]["right"] == right:
+                windows[-1]["cores"].append(core)
+                continue
+            windows.append({"left": left, "right": right, "cores": [core], "parts": 1})
+
+        joined = []
+        for window in windows:
+            if joined and settings.merge_gap_s > 0:
+                previous = joined[-1]
+                separation = time[window["left"]] - time[previous["right"]]
+                span = time[window["right"]] - time[previous["left"]] + dt
+                if separation <= settings.merge_gap_s + 1e-8 and span <= settings.max_window_s:
+                    # A brief spike does not establish touchdown. Require sustained
+                    # support-level load before treating adjacent windows as distinct.
+                    left_gap, right_gap = previous["right"] + 1, window["left"]
+                    contact = clean[left_gap:right_gap] >= max(.8, settings.expand_g)
+                    edges = np.diff(np.r_[False, contact, False].astype(int))
+                    begins = np.flatnonzero(edges == 1) + left_gap
+                    finishes = np.flatnonzero(edges == -1) + left_gap - 1
+                    sustained = any(time[b] - time[a] + dt + 1e-8 >= settings.landing_hold_s
+                                    for a, b in zip(begins, finishes))
+                    if not sustained:
+                        previous["right"] = window["right"]
+                        previous["cores"].extend(window["cores"])
+                        previous["parts"] += window["parts"]
+                        continue
+            joined.append(window)
+
+        for window in joined:
+            left, right = window["left"], window["right"]
             limit = min(end, int(np.searchsorted(time, time[right] + settings.impact_search_s, side="right")))
             hits = np.flatnonzero(raw[right + 1:limit] > settings.impact_g)
             impact_index = int(right + 1 + hits[0]) if len(hits) else None
             if settings.mode == "sequence" and impact_index is None:
                 continue
-            if events and events[-1]["start_index"] == left and events[-1]["end_index"] == right:
-                events[-1]["cores"].append([float(time[cs]), float(time[ce])])
-                continue
             events.append({
                 "start_index": left, "end_index": right,
                 "start_s": float(time[left]), "end_s": float(time[right]),
                 "window_s": float(time[right] - time[left] + dt),
-                "cores": [[float(time[cs]), float(time[ce])]],
+                "cores": window["cores"], "joined_windows": window["parts"],
                 "impact_s": float(time[impact_index]) if impact_index is not None else None,
                 "impact_g": float(raw[impact_index]) if impact_index is not None else None,
                 "mean_g": float(raw[left:right + 1].mean()),
