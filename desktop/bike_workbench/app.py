@@ -294,7 +294,7 @@ class Workbench(W.QMainWindow):
         plot.showGrid(x=True, y=True, alpha=.12)
         plot.setClipToView(True)
         plot.setDownsampling(auto=True, mode="peak")
-        plot.getViewBox().setMouseEnabled(x=True, y=True)
+        plot.getViewBox().setMouseEnabled(x=True, y=False)
         return plot
 
     def settings(self):
@@ -391,6 +391,7 @@ class Workbench(W.QMainWindow):
         self.apply_settings(settings)
         self.zoom_region.setBounds((0, float(result["time"][-1])))
         self.selection.setBounds((0, float(result["time"][-1])))
+        self.fix_vertical_scales()
         self.file_label.setText(ride.path.name)
         self.file_label.setToolTip(str(ride.path))
         self.setWindowTitle("Bike Coach · Jump Workbench — " + ride.path.name)
@@ -596,10 +597,22 @@ class Workbench(W.QMainWindow):
             self.clean_curve.show()
             for curve in self.gyro_curves:
                 curve.show()
-            for plot in (self.load_plot, self.gyro_plot, self.overview):
-                plot.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
+            self.fix_vertical_scales()
             self.load_plot.setXRange(0, self.result["time"][-1], padding=0)
             self.overview.setXRange(0, self.result["time"][-1], padding=0)
+
+    def fix_vertical_scales(self):
+        """Use whole-recording bounds, independent of time zoom and filters."""
+        if not self.ride:
+            return
+        load_max = max(1.0, float(self.ride.load.max()) * 1.08)
+        gyro_max = max(1.0, float(np.linalg.norm(self.ride.gyro, axis=1).max()) * 1.08)
+        for plot, low, high in [(self.load_plot, 0.0, load_max), (self.overview, 0.0, load_max),
+                                (self.gyro_plot, -gyro_max, gyro_max)]:
+            view = plot.getViewBox()
+            view.enableAutoRange(axis=pg.ViewBox.YAxis, enable=False)
+            view.setLimits(yMin=low, yMax=high, minYRange=high - low, maxYRange=high - low)
+            view.setYRange(low, high, padding=0)
 
     def event_selected(self):
         row = self.event_table.currentRow()

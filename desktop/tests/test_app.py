@@ -89,7 +89,7 @@ class AppTests(unittest.TestCase):
         w.autosave()
         self.assertEqual(read_session(path)[0]["labels"], [])
 
-    def test_full_ride_restores_hidden_curves_and_y_autorange(self):
+    def test_full_ride_restores_hidden_curves_and_fixed_y_range(self):
         w = self.window
         w.raw_curve.hide()
         w.clean_curve.hide()
@@ -97,7 +97,29 @@ class AppTests(unittest.TestCase):
         w.full_ride()
         self.assertTrue(w.raw_curve.isVisible())
         self.assertTrue(w.clean_curve.isVisible())
-        self.assertTrue(w.load_plot.getViewBox().autoRangeEnabled()[1])
+        self.assertFalse(w.load_plot.getViewBox().autoRangeEnabled()[1])
+        self.assertAlmostEqual(w.load_plot.viewRange()[1][0], 0)
+        self.assertGreater(w.load_plot.viewRange()[1][1], 2.5)
+
+    def test_vertical_ranges_survive_zoom_pan_filter_and_legend_changes(self):
+        w = self.window
+        plots = [w.load_plot, w.gyro_plot, w.overview]
+        initial = [tuple(plot.viewRange()[1]) for plot in plots]
+        w.load_plot.setXRange(1.1, 1.2, padding=0)
+        w.load_plot.getViewBox().scaleBy((.5, .2))
+        w.load_plot.getViewBox().translateBy(y=10)
+        w.raw_curve.hide()
+        w.controls["filter"].setCurrentIndex(w.controls["filter"].findData("mean"))
+        w.timer.stop()
+        self.assertTrue(w.recalculate())
+        self.app.processEvents()
+        for plot, expected in zip(plots, initial):
+            self.assertAlmostEqual(plot.viewRange()[1][0], expected[0])
+            self.assertAlmostEqual(plot.viewRange()[1][1], expected[1])
+        w.full_ride()
+        for plot, expected in zip(plots, initial):
+            self.assertAlmostEqual(plot.viewRange()[1][0], expected[0])
+            self.assertAlmostEqual(plot.viewRange()[1][1], expected[1])
 
 
 if __name__ == "__main__":
