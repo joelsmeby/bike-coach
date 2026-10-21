@@ -12,7 +12,7 @@ Bike Coach records bike motion on an OpenLog Artemis and uses a phone webpage to
 
 The webpage starts at `index.html` and currently loads `app-v4.js`. The analyzer starts at `analyzer.html`. Upload firmware from **`firmware/OpenLog_Artemis_BikeCoach/OpenLog_Artemis_BikeCoach.ino`**.
 
-Older sketches and application versions are under `archive/`. Local ZIPs and extracted copies are retained under `archive/local/` and excluded from Git. Do not use those copies as the source of a new change. The baseline uses web 5.2.3 and firmware 0.2.11; build and physical validation are separate facts. Consult GitHub and Notion for the status of a particular release.
+Older sketches and application versions are under `archive/`. Local ZIPs and extracted copies are retained under `archive/local/` and excluded from Git. Do not use those copies as the source of a new change. The source versions are web 5.2.4 and firmware 0.2.12; build and physical validation are separate facts. Consult GitHub and Notion for the status of a particular release.
 
 Download installation packages from [GitHub Releases](https://github.com/joelsmeby/bike-coach/releases). Each package identifies its web version, firmware version and source commit. See [release instructions](docs/RELEASING.md) for generation, verification and recovery.
 

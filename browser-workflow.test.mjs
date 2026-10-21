@@ -29,7 +29,7 @@ try{
   const csv='rtcDate,rtcTime,aX,aY,aZ,gX,gY,gZ,mX,mY,mZ,imu_degC,output_Hz,\n'+rows.join('\n');
   const files=new Map([['dataLog00042.TXT',encode(csv)],['OtherTrail_Run1.TXT',encode(csv)]]);
   let staged='',transfer=null,rideStarted=0,lastRide='';
-  window.fakeBoard={files,commands:[],packetSizes:[],stagedWrites:[]};
+  window.fakeBoard={files,commands:[],packetSizes:[],stagedWrites:[],info:firmwareInfo};
   command.writeValueWithoutResponse=async bytes=>{
    const raw=new TextDecoder().decode(bytes);window.fakeBoard.stagedWrites.push(bytes.length);
    if(bytes.length>20)throw Error('Command exceeded 20-byte link');
@@ -39,7 +39,8 @@ try{
    if(raw==='CMD_RUN'){cmd=staged;staged='';}
    window.fakeBoard.commands.push(cmd);
    let reply;
-   if(cmd==='INFO')reply=firmwareInfo;
+   if(cmd==='INFO')reply=window.fakeBoard.info;
+   else if(cmd==='POWER_OFF'){reply='POWERING_OFF';setTimeout(()=>device.gatt.disconnect(),30);}
    else if(cmd==='START_RIDE'){rideStarted=Date.now();lastRide='GPS_Ride.TXT';reply='LOGGING,'+lastRide;}
    else if(cmd==='STOP_RIDE'){
     if(!rideStarted)reply='IDLE';
@@ -65,6 +66,7 @@ try{
   };
   const chars={'1001':command,'1002':status,'1003':data,'1004':power};
   const device=new EventTarget();device.id='fake-bike';device.gatt={connected:false,async connect(){this.connected=true;return{getPrimaryService:async()=>({getCharacteristic:async uuid=>chars[uuid.slice(4,8)]})};},disconnect(){this.connected=false;device.dispatchEvent(new Event('gattserverdisconnected'));}};
+  window.fakeBoard.notify=raw=>status.notify(raw);
   Object.defineProperty(navigator,'bluetooth',{value:{requestDevice:async()=>device},configurable:true});
  },{firmwareInfo:process.env.BIKECOACH_TEST_INFO||'BIKECOACH,FW=0.2.9,STATE=IDLE,FILE='});
  await page.goto(`http://127.0.0.1:${server.address().port}/`);
@@ -123,6 +125,22 @@ try{
  await page.click('#connect');await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent.includes('Firmware: 0.2.'));
  await page.evaluate(()=>navigator.bluetooth.requestDevice().then(device=>device.gatt.disconnect()));
  assert.match(await page.textContent('#recordingStatus'),/unknown/);assert.equal(await page.locator('#fileList .file-row').count(),0);
+ // New power controls are capability-gated; old firmware keeps working.
+ await page.click('#connect');await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent.includes('Firmware: 0.2.'));
+ assert.equal(await page.locator('#powerOff').isDisabled(),true);
+ await page.evaluate(async()=>{const d=await navigator.bluetooth.requestDevice();d.gatt.disconnect();window.fakeBoard.info='BIKECOACH,FW=0.2.12,TRANSFER=LEGACY6,FILES=1,POWER_OFF=1,STATE=FAULT,SD=0,IMU=1,FAULT=SD_INIT,FILE=';});
+ await page.click('#connect');await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent.includes('0.2.12'));
+ assert.match(await page.textContent('#deviceFault'),/SD_INIT/);assert.equal(await page.locator('#deviceFault').isVisible(),true);
+ assert.equal(await page.locator('#start').isDisabled(),true);assert.equal(await page.locator('#listFiles').isDisabled(),true);
+ assert.equal(await page.locator('#powerOff').isEnabled(),true);
+ page.once('dialog',dialog=>dialog.accept());await page.click('#powerOff');
+ await page.waitForFunction(()=>document.querySelector('#firmwareStatus').textContent==='Firmware: —'&&document.querySelector('#status').textContent.includes('powering off'));
+ assert.equal(await page.locator('#powerOff').isDisabled(),true);
+ await page.evaluate(()=>{window.fakeBoard.info='BIKECOACH,FW=0.2.12,TRANSFER=LEGACY6,FILES=1,POWER_OFF=1,STATE=IDLE,SD=1,IMU=1,FAULT=NONE,FILE=';});
+ await page.click('#connect');await page.waitForFunction(()=>!document.querySelector('#powerOff').disabled);
+ assert.equal(await page.locator('#deviceFault').isVisible(),false);
+ await page.evaluate(async()=>{window.fakeBoard.notify('LOW_BATTERY,POWERING_OFF');const d=await navigator.bluetooth.requestDevice();d.gatt.disconnect();});
+ assert.match(await page.textContent('#status'),/Low battery.*Charge/);
  assert.deepEqual(errors,[]);
  console.log('PASS: automatic GPS start/stop, track persistence, GPS CSV export, route rendering, analyzer export, reload, plus connect, complete short-MTU list, long SD rename, collision guard, 20-byte handshake transfer, local rename, raw bytes/identity, CSV export, analyzer load, mobile layout, disconnect.');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

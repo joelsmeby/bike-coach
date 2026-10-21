@@ -4,12 +4,15 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M5 23L14 8l5 9 4-6 5 12' fill='none' stroke='%234ade80' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css?v=8">
 <body><main>
-<header><strong>BIKE COACH · 5.2.3</strong><a href="analyzer.html?v=18">Analyzer ↗</a></header>
+<header><strong>BIKE COACH · 5.2.4</strong><a href="analyzer.html?v=18">Analyzer ↗</a></header>
 <h1>Choose your bike.<br>Then ride.</h1>
 <p>Set up each bike once. Bike Coach remembers its mounting angle for future rides.</p>
 <section>
  <span id="connection">Not connected</span><span id="firmwareStatus" style="display:block;font-size:13px;color:#aeb9c8;margin-top:6px">Firmware: —</span><button id="connect">Connect Bike Coach</button>
  <p id="batteryStatus" aria-live="polite">Battery: —</p>
+ <p id="deviceFault" role="status" hidden></p>
+ <button id="powerOff" disabled>Power off Bike Coach</button>
+ <p id="powerHelp">Requires firmware 0.2.12. Stop recording before powering off. Press the board’s RESET button to wake it.</p>
  <p id="recordingStatus" aria-live="polite">Recording: unknown · connect to check</p>
  <p style="font-size:13px;color:#aeb9c8">Battery % is estimated from voltage while running on battery power. USB power masks the battery reading.</p>
  <div class="profile-heading"><h2>Your bike</h2><button id="addBike">Add a bike</button></div>
@@ -67,4 +70,4 @@
  <div class="row"><button id="cancelRename" type="button" class="quiet">Cancel</button><button id="confirmRename" type="submit">Rename</button></div>
 </form></dialog>
 <footer>Keep this page open during the download. Stop recording before downloading; keep the board powered on.</footer>
-</main><script type="module" src="app-v4.js?v=13"></script></body></html>
+</main><script type="module" src="app-v4.js?v=14"></script></body></html>
