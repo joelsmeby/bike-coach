@@ -1,42 +1,31 @@
 # Bike Coach device power protocol
 
-Firmware v0.2.6 adds battery status and intentional deep sleep while preserving the existing Bike Coach BLE UUIDs.
+Current source: firmware 0.2.12 / web 5.2.4. Earlier 0.2.6 power documentation described behavior that was absent from 0.2.11. Compilation, deployment, upload and physical validation are separate facts.
 
-## INFO additions
+## Wake and startup
 
-`INFO` continues to reply on status characteristic `1002` with a `BIKECOACH,...` record. v0.2.6 adds:
+With a charged LiPo connected, press physical RESET to restart/wake the OpenLog Artemis. No USB connection is required. Power LED is enabled, STAT briefly acknowledges boot, Bluetooth advertises BikeCoach and the device stays idle until START_RIDE. Battery reconnection alone is not a guaranteed reset because the onboard backup battery can retain sleep state. RESET during recording can lose unsaved data; normally STOP_RIDE first.
 
-- `VBAT=<millivolts>` — measured OpenLog Artemis VIN/LiPo voltage.
-- `BAT=<percent>` — approximate LiPo state of charge derived from voltage.
+Bluetooth starts independently of SD/IMU initialization success. INFO returns a stored full response on characteristic 1002 (read it after a shortened notification):
 
-Example:
+`BIKECOACH,FW=0.2.12,TRANSFER=LEGACY6,FILES=1,POWER_OFF=1,STATE=IDLE,SD=1,IMU=1,FAULT=NONE,FILE=`
 
-`BIKECOACH,FW=0.2.6,STATE=IDLE,FILE=ride0042.CSV,GPS=1,TRANSFER=LEGACY6,VBAT=3975,BAT=81`
+Faults use STATE=FAULT plus SD/IMU readiness and FAULT=SD_INIT, IMU_INIT, IMU_STARTUP or IMU_RANGE. If both fail, FAULT names the SD failure and both readiness fields remain zero. Recording is blocked when either component is unavailable. Missing SD blocks file operations; an IMU fault alone does not block downloads. The phone displays the startup fault. STAT flashes briefly once per second while a startup fault persists. RESET retries initialization. BLE initialization failure is visible through STAT/Serial and is retried every five seconds; Bluetooth cannot report its own inability to initialize.
 
-The app may refresh `INFO` periodically while connected.
+## Battery reading
+
+Read characteristic 1004: `POWER,<millivolts>`. VIN is sampled every two seconds, including during transfers. The shared VIN rail reports external power while USB is present; it cannot reveal the battery's actual voltage or charging completion then. Percent is a voltage estimate in the frontend. Measurement calibration must be checked against a multimeter.
 
 ## POWER_OFF
 
-Command characteristic `1001` accepts:
+Command characteristic 1001 accepts POWER_OFF only as an implemented capability when INFO includes POWER_OFF=1. The phone disables its button on older firmware, during busy operations or while recording (stop first).
 
-`POWER_OFF`
-
-Behavior:
-
-1. Reject while a BLE file transfer is active.
-2. If logging, sync and close the SD recording.
-3. Send `POWERING_OFF` on status characteristic `1002`.
-4. Stop BLE advertising / BLE stack.
-5. Power down IMU, SD and unused rails.
-6. Enter Apollo3 deep sleep indefinitely.
-7. Wake by pressing the physical RESET button on the OpenLog Artemis.
-
-The reset button therefore functions as the physical **wake/on** control. The app's **Power Off Bike Coach** command is the normal off control.
+Firmware rejects manual POWER_OFF during a transfer with ERR,TRANSFER_ACTIVE. Otherwise it syncs and closes an active log; a failed sync or close reports ERR,SD_SYNC or ERR,SD_CLOSE and leaves the device awake. After successful closure it reports POWERING_OFF, allows a brief notification interval, stops BLE and powers down SD/IMU/Qwiic, GPIO pads, LEDs and unused peripherals. Apollo3 enters deep sleep with RTC retained, until hardware RESET. Pending SD internal writes receive a delay before the rail is disabled. Sleep does not erase recordings. Charging can continue from USB independently of firmware sleep.
 
 ## Low battery
 
-After repeated readings below 3.40 V, firmware enters the same safe power-off path after sending `LOW_BATTERY,POWERING_OFF`.
+Three consecutive valid VIN readings below 3400 mV trigger automatic shutdown, approximately six seconds of sustained low readings. A healthy/external-power or invalid reading resets the count; readings outside the plausible ADC range are not treated as a calibrated low battery. Low battery cancels a read-only transfer, safely closes an active log and then reports LOW_BATTERY,POWERING_OFF before sleeping. A sync/close error aborts shutdown and will be retried on the next low reading. A valid low reading also blocks START_RIDE with ERR,LOW_BATTERY. This does not guarantee recovery from sudden power loss or a hardware fault.
 
-## Design intent
+## Required physical checks
 
-The device should not require USB for normal operation. A cold boot/reset with LiPo power present should proceed directly to BLE initialization and advertising. USB is only required for flashing/debugging/charging workflows, not to make BLE appear.
+Confirm startup/repeated RESET on battery, BLE reconnect, fault reporting, manual sleep/wake, ADC accuracy and low-battery behavior under controlled supply, transfer cancellation, recording integrity and measured sleep current. Do not infer sleep current or reliable wake from a successful compile or simulated test.

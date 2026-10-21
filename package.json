@@ -7,7 +7,7 @@
   "engines": { "node": ">=24 <25" },
   "scripts": {
     "test": "node --test device-status.test.mjs gps-workflow.test.mjs recording-names.test.mjs scripts/package-release.test.mjs",
-    "test:firmware": "node firmware-commands.test.mjs",
+    "test:firmware": "node firmware-commands.test.mjs && node firmware-power.test.mjs",
     "test:browser": "node scripts/test-browser.mjs",
     "test:all": "pnpm test && pnpm test:firmware && pnpm test:browser",
     "firmware:build": "node scripts/build-firmware.mjs",

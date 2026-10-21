@@ -9,7 +9,7 @@ import {createProfile,updateProfile,validProfile,exportProfiles as profileBackup
 import {RideWorkflow} from './ride-workflow.mjs';
 import {GUIDED_PROTOCOL,GUIDED_DURATION_SECONDS,guidedTrainingLabels,trainingCsv} from './guided-training.mjs?v=1';
 import {parseFileReply,fileRequest,parseTextRecording,LegacyReceiver} from './file-browser.mjs?v=4';
-import {completeStatusReply,powerDescription,firmwareCapabilities} from './device-status.mjs?v=2';
+import {completeStatusReply,powerDescription,firmwareCapabilities} from './device-status.mjs?v=3';
 import {trailFilename,renameRecording,parseRenameReply,commandParts} from './recording-names.mjs?v=1';
 
 const $=id=>document.getElementById(id),uuid=n=>`7b7e${n}-6f1d-4f35-9f55-42494b45434f`,enc=new TextEncoder();
@@ -22,6 +22,7 @@ let sdFiles=[];
 let firmwareMode='framed';
 let supportsFileNames=false,renameTarget=null;
 let powerChar=null,powerReading=false;
+let supportsPowerOff=false,storageReady=true,motionReady=true,shutdownReason='',powerOffAcknowledged=false;
 let audioContext=null;
 const message=s=>$('status').textContent=s,text=v=>new TextDecoder().decode(v);
 const profilesKey=()=>`bike-profiles:${device.id}`,selectedKey=()=>`selected-bike:${device.id}`,calibrationKey=()=>`calibration:${device.id}`;
@@ -96,6 +97,7 @@ function controls(){
  $('saveGps').disabled=operation||active;
 
  const connected=!!command&&!!device?.gatt.connected,busy=operation||active,settingUp=!$('setupPanel').hidden;
+ $('powerOff').disabled=!connected||busy||recording||!supportsPowerOff||!!shutdownReason;
  $('connect').disabled=busy||recording;$('connect').textContent=connected?'Disconnect':'Connect Bike Coach';
  $('addBike').disabled=busy;$('bikeSelect').disabled=!connected||busy||!profiles.length||settingUp||recording;
  for(const id of ['updateBike','renameBike','deleteBike'])$(id).disabled=!connected||busy||!selectedProfile||recording;
@@ -109,9 +111,11 @@ function controls(){
  $('testAudio').disabled=busy;$('small').disabled=busy;$('cancel').hidden=!active;$('analyze').disabled=busy;$('applyCalibration').hidden=!ride||validCalibration(ride.calibration)||!selectedProfile;$('applyCalibration').disabled=busy;
  $('exportProfiles').disabled=!connected||busy||!profiles.length;$('importProfiles').disabled=!connected||busy;
  $('renameRide').disabled=busy||!ride;
+ if(!storageReady){for(const id of ['download','listFiles','moreFiles'])$(id).disabled=true;}
+ if(!storageReady||!motionReady){for(const id of ['start','beginSetup','guidedTraining'])$(id).disabled=true;}
  $('recordingStatus').textContent=connected?(recording?'Recording: ON · blue light on':'Recording: OFF · blue light off'):'Recording: unknown · connect to check';
  $('recordingStatus').classList.toggle('recording',connected&&recording);
- $('startHelp').textContent=!connected?'Connect Bike Coach first.':!selectedProfile?'Add or choose a bike to enable Start ride.':workflow.pending?'Download the completed ride before starting another.':`Ready to record with ${selectedProfile.name}.`;
+ $('startHelp').textContent=!connected?'Connect Bike Coach first.':(!storageReady||!motionReady)?'Resolve the device startup problem and press RESET before recording.':!selectedProfile?'Add or choose a bike to enable Start ride.':workflow.pending?'Download the completed ride before starting another.':`Ready to record with ${selectedProfile.name}.`;
 }
 function openSetup(profile=null){setupTargetId=profile?.id||null;$('setupTitle').textContent=profile?`Update ${profile.name}`:'Add a bike';$('bikeName').value=profile?.name||'';$('bikeName').disabled=!!profile;$('useExistingSetup').hidden=!!profile||!usesDeviceAxes(legacyCalibration);$('setupPanel').hidden=false;controls();$('setupPanel').scrollIntoView?.({behavior:'smooth',block:'start'});}
 function closeSetup(){$('setupPanel').hidden=true;setupTargetId=null;controls();}
@@ -135,9 +139,20 @@ async function refreshPower(){
 }
 setInterval(()=>{if(!operation&&!active)refreshPower();},30000);
 function beginKnownRide(file){recording=true;if(selectedProfile&&file){workflow.setCalibration(profileCalibration(selectedProfile));workflow.start(file);}}
-function applyBoardState(s){$('firmwareStatus').textContent='Firmware: '+(s.match(/(?:^|,)FW=([^,]+)/)?.[1]||'unknown');const state=s.match(/(?:^|,)STATE=([^,]+)/)?.[1],file=s.match(/(?:^|,)FILE=([^,]+)/)?.[1];if(state==='LOGGING'){beginKnownRide(file);return;}if(state==='IDLE')recording=false;}
+function applyBoardState(s){
+ $('firmwareStatus').textContent='Firmware: '+(s.match(/(?:^|,)FW=([^,]+)/)?.[1]||'unknown');
+ supportsPowerOff=/(?:^|,)POWER_OFF=1(?:,|$)/.test(s);
+ storageReady=!/(?:^|,)SD=0(?:,|$)/.test(s);motionReady=!/(?:^|,)IMU=0(?:,|$)/.test(s);
+ const fault=s.match(/(?:^|,)FAULT=([^,]+)/)?.[1];
+ $('deviceFault').hidden=!fault||fault==='NONE';
+ $('deviceFault').textContent=fault&&fault!=='NONE'?`Device startup problem: ${fault}. Recording is unavailable. Check the SD card or sensor, then press RESET.`:'';
+ const state=s.match(/(?:^|,)STATE=([^,]+)/)?.[1],file=s.match(/(?:^|,)FILE=([^,]+)/)?.[1];
+ if(state==='LOGGING'){beginKnownRide(file);return;}if(state==='IDLE'||state==='FAULT')recording=false;
+}
 function onStatus(e){
  const s=text(e.target.value);
+ if(s==='POWERING_OFF'){powerOffAcknowledged=true;shutdownReason='Bike Coach is powering off. Press RESET on the board to wake it.';}
+ if(s.startsWith('LOW_BATTERY,')){shutdownReason='Low battery: Bike Coach saved the recording and is powering off. Charge it, then press RESET.';message(shutdownReason);}
  if(statusWait&&(s.startsWith('ERR,')||statusWait.prefixes.some(p=>s.startsWith(p)))){const w=statusWait;statusWait=null;clearTimeout(w.timer);s.startsWith('ERR,')?w.reject(Error(s)):w.resolve(s);}
  if(s.startsWith('TRANSFER,')&&transfer)transfer.name=s.split(',')[2];
  else if(s.startsWith('FILE_BEGIN,')&&transfer&&receiver instanceof LegacyReceiver){
@@ -168,7 +183,17 @@ setInterval(()=>{if(!active||!receiver||finishing)return;if(Date.now()-lastPacke
 let checking=false;setInterval(async()=>{if(!active||!finishing||!transfer?.completed||checking)return;checking=true;const owner=transfer;try{const current=text(await queuedRead(statusChar));if(current==='TRANSFER_DONE'||(receiver instanceof LegacyReceiver&&current.startsWith(`FILE_END,${owner.name},${receiver.size},`)&&receiver.done&&current.split(',')[3]===`CHUNKS=${receiver.next}`))finishTransfer();else if(transfer===owner&&Date.now()-owner.waitingSince>18000)failTransfer(Error('Recording saved, but the board did not confirm completion. Reconnect before continuing.'));}catch(e){failTransfer(e);}finally{checking=false;}},1000);
 async function run(action){if(operation||active)return;operation=true;controls();try{await action();}catch(e){message(e.message);}finally{operation=false;controls();}}
 
-$('connect').onclick=async()=>{if(device?.gatt.connected){device.gatt.disconnect();return;}await run(async()=>{if(!navigator.bluetooth)throw Error('Open this page in Bluefy on your iPhone.');device=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'BikeCoach'}],optionalServices:[uuid('1000')]});device.addEventListener('gattserverdisconnected',()=>{completePhoneGps('disconnected');gpsCapable=false;command=null;supportsFileNames=false;sdFiles=[];renderSdFiles();powerChar=null;$('batteryStatus').textContent='Battery: —';recording=false;profiles=[];selectedProfile=null;legacyCalibration=null;openSetupAfterConnect=false;workflow.disconnected();rejectStatus(Error('Disconnected. Reconnect before continuing.'));failTransfer(Error('Disconnected during download. Reconnect and try again.'));closeSetup();renderProfile();showSetupResult('idle','Disconnected','Saved bike profiles remain on this phone.');message('Disconnected. Saved rides and guided labels remain on this phone.');$('connection').textContent='Not connected';$('firmwareStatus').textContent='Firmware: —';controls();});try{const server=await device.gatt.connect(),service=await server.getPrimaryService(uuid('1000'));command=await service.getCharacteristic(uuid('1001'));statusChar=await service.getCharacteristic(uuid('1002'));const dataChar=await service.getCharacteristic(uuid('1003'));statusChar.addEventListener('characteristicvaluechanged',onStatus);await statusChar.startNotifications();dataChar.addEventListener('characteristicvaluechanged',onPacket);await dataChar.startNotifications();legacyCalibration=await recordStore(calibrationKey());pendingTrainingLabels=await recordStore(trainingKey())||null;const saved=await recordStore(profilesKey()),hadOldProfiles=Array.isArray(saved)&&saved.length>0;profiles=Array.isArray(saved)?saved.filter(validProfile):[];const selected=await recordStore(selectedKey());await chooseProfile(profiles.some(p=>p.id===selected)?selected:profiles[0]?.id||'',false);const info=await confirmed('INFO',['BIKECOACH,']);gpsCapable=/(?:^|,)GPS=1(?:,|$)/.test(info);const capabilities=firmwareCapabilities(info);firmwareMode=capabilities.mode;supportsFileNames=capabilities.fileNames;applyBoardState(info);try{powerChar=await service.getCharacteristic(uuid('1004'));await refreshPower();}catch{powerChar=null;$('batteryStatus').textContent='Battery: requires firmware 0.2.6';}$('connection').textContent=recording?'Bike Coach connected · recording':'Bike Coach connected';message(recording?'The board is already recording. Tap Stop recording when finished.':selectedProfile?`${selectedProfile.name} selected. You can start your ride.`:hadOldProfiles?'The direction calculation was corrected. Set up this bike once more.':'Connected. Add your first bike to continue.');if(!profiles.length||openSetupAfterConnect){openSetupAfterConnect=false;openSetup();}}catch(e){openSetupAfterConnect=false;device.gatt.disconnect();throw e;}});};
+$('connect').onclick=async()=>{if(device?.gatt.connected){device.gatt.disconnect();return;}await run(async()=>{if(!navigator.bluetooth)throw Error('Open this page in Bluefy on your iPhone.');device=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'BikeCoach'}],optionalServices:[uuid('1000')]});device.addEventListener('gattserverdisconnected',()=>{supportsPowerOff=false;storageReady=true;motionReady=true;$('deviceFault').hidden=true;completePhoneGps('disconnected');gpsCapable=false;command=null;supportsFileNames=false;sdFiles=[];renderSdFiles();powerChar=null;$('batteryStatus').textContent='Battery: —';recording=false;profiles=[];selectedProfile=null;legacyCalibration=null;openSetupAfterConnect=false;workflow.disconnected();rejectStatus(Error('Disconnected. Reconnect before continuing.'));failTransfer(Error('Disconnected during download. Reconnect and try again.'));closeSetup();renderProfile();showSetupResult('idle','Disconnected','Saved bike profiles remain on this phone.');message(shutdownReason||'Disconnected. Saved rides and guided labels remain on this phone.');$('connection').textContent='Not connected';$('firmwareStatus').textContent='Firmware: —';controls();});try{shutdownReason='';powerOffAcknowledged=false;const server=await device.gatt.connect(),service=await server.getPrimaryService(uuid('1000'));command=await service.getCharacteristic(uuid('1001'));statusChar=await service.getCharacteristic(uuid('1002'));const dataChar=await service.getCharacteristic(uuid('1003'));statusChar.addEventListener('characteristicvaluechanged',onStatus);await statusChar.startNotifications();dataChar.addEventListener('characteristicvaluechanged',onPacket);await dataChar.startNotifications();legacyCalibration=await recordStore(calibrationKey());pendingTrainingLabels=await recordStore(trainingKey())||null;const saved=await recordStore(profilesKey()),hadOldProfiles=Array.isArray(saved)&&saved.length>0;profiles=Array.isArray(saved)?saved.filter(validProfile):[];const selected=await recordStore(selectedKey());await chooseProfile(profiles.some(p=>p.id===selected)?selected:profiles[0]?.id||'',false);const info=await confirmed('INFO',['BIKECOACH,']);gpsCapable=/(?:^|,)GPS=1(?:,|$)/.test(info);const capabilities=firmwareCapabilities(info);firmwareMode=capabilities.mode;supportsFileNames=capabilities.fileNames;applyBoardState(info);try{powerChar=await service.getCharacteristic(uuid('1004'));await refreshPower();}catch{powerChar=null;$('batteryStatus').textContent='Battery: requires firmware 0.2.6';}$('connection').textContent=recording?'Bike Coach connected · recording':'Bike Coach connected';message(recording?'The board is already recording. Tap Stop recording when finished.':selectedProfile?`${selectedProfile.name} selected. You can start your ride.`:hadOldProfiles?'The direction calculation was corrected. Set up this bike once more.':'Connected. Add your first bike to continue.');if((!profiles.length||openSetupAfterConnect)&&storageReady&&motionReady){openSetupAfterConnect=false;openSetup();}}catch(e){openSetupAfterConnect=false;device.gatt.disconnect();throw e;}});};
+
+$('powerOff').onclick=()=>run(async()=>{
+ if(!supportsPowerOff)throw Error('Power off requires firmware 0.2.12 or newer.');
+ if(recording)throw Error('Stop recording before powering off.');
+ if(!confirm('Put Bike Coach to sleep? Press the board’s RESET button to wake it.'))return;
+ powerOffAcknowledged=false;
+ try{await confirmed('POWER_OFF',['POWERING_OFF']);}
+ catch(error){if(!powerOffAcknowledged)throw error;}
+ message(shutdownReason||'Bike Coach is powering off. Press RESET to wake it.');
+});
 
 $('bikeSelect').onchange=()=>run(async()=>{await chooseProfile($('bikeSelect').value);message(`${selectedProfile.name} selected.`);});
 $('addBike').onclick=async()=>{if(!device?.gatt.connected||!command){openSetupAfterConnect=true;message('Choose BikeCoach in the Bluetooth window. Bike setup will open after it connects.');await $('connect').onclick();if(device?.gatt.connected)message('Enter a bike name, then tap Set up this bike.');return;}openSetup();message('Enter a bike name, then tap Set up this bike.');};$('updateBike').onclick=()=>openSetup(selectedProfile);$('cancelSetup').onclick=closeSetup;

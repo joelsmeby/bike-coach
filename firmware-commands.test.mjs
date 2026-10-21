@@ -44,12 +44,14 @@ struct Storage {
  bool rename(const char* a,const char* b){auto i=find(a);if(i==files.end()||exists(b))return false;bool dir=i->second;files.erase(i);files[b]=dir;renames++;return true;}
 } sd;
 const int O_RDONLY=0;const size_t MAX_RECORDING_NAME=64;
-char logName[65]="dataLog00042.TXT";bool logging=false,transferActive=false,transferReady=false;
+char logName[65]="dataLog00042.TXT";bool logging=false,transferActive=false,transferReady=false,sdReady=true;
 String stagedCommand;uint32_t stagedAt=0;
 struct {bool ready=false;String raw;bool written(){bool r=ready;ready=false;return r;}String value(){return raw;}} commandChar;
 struct {void poll(){}} BLE;
 int requestedLimit=0;std::string requestedFile;
 void startRide(){} void stopRide(){} void listFileAt(uint16_t){}
+void sendInfo(){status("BIKECOACH,FW=0.2.12");}
+int sleeps=0;void powerDownUntilReset(bool){sleeps++;}
 void stopTransfer(const char*){transferActive=false;}
 bool beginLatestTransfer(uint16_t limit){requestedLimit=limit;return true;}
 bool beginFileTransfer(const char* name,uint16_t limit){requestedFile=name;requestedLimit=limit;return true;}
@@ -73,6 +75,9 @@ int main(){
  send("GET_LATEST,20");assert(requestedLimit==20);send("GET_LATEST,19");assert(lastStatus=="ERR,PACKET_SIZE");
  send("CMD_CLEAR");std::string get="GET_FILE,"+name+",20";for(size_t i=0;i<get.size();i+=12)send("CMD_ADD,"+get.substr(i,12));send("CMD_RUN");assert(requestedFile==name&&requestedLimit==20);
  transferActive=true;send("FILE_READY");assert(transferReady);
+ transferActive=true;send("POWER_OFF");assert(lastStatus=="ERR,TRANSFER_ACTIVE"&&sleeps==0);
+ transferActive=false;send("POWER_OFF");assert(sleeps==1);
+ sdReady=false;renameRecording(name.c_str(),"Safe.TXT");assert(lastStatus=="ERR,SD_INIT"&&sd.renames==1);
  std::cout<<"PASS: actual firmware rename guards, filename bounds, latest-file tracking, staged commands, overflow/expiry, packet size and transfer-ready handling.\n";
 }
 `;
